@@ -162,11 +162,19 @@ export function createSuspenseI18n<Locale extends string, Messages>(
     if (locale === undefined) resources.clear();
     else resources.delete(locale);
   }
+  /**
+   * Use messages loaded elsewhere for their locale, in place of what `loadLocale` would
+   * load, such as a smaller catalog for the first page. A Provider reads them when it
+   * next renders, without suspending.
+   */
+  function prime(snapshot: Snapshot): void {
+    resources.set(snapshot.locale, { status: 'fulfilled', promise: Promise.resolve(snapshot), value: snapshot });
+  }
   function useMessages(): Messages { return useSnapshot().messages; }
   function useLocale(): Locale { return useSnapshot().locale; }
   function useI18n(): Snapshot { return useSnapshot(); }
 
-  return { Provider, useMessages, useLocale, useI18n, preload, isLoaded, invalidate, loadLocale };
+  return { Provider, useMessages, useLocale, useI18n, preload, isLoaded, invalidate, prime, loadLocale };
 }
 
 function useRequiredContext<Value>(context: React.Context<Value | null>): Value {

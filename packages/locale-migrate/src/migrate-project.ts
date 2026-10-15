@@ -1,7 +1,7 @@
 import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { compileProject } from '@nordbeam/locale/internal/migrate';
+import { compileProject, staticScopes } from '@nordbeam/locale/internal/migrate';
 import type { Catalog } from '@nordbeam/locale/internal/migrate';
 import { discoverConfig, readConfig } from '@nordbeam/locale/internal/migrate';
 import { initialize, planInitialize } from '@nordbeam/locale/internal/migrate';
@@ -442,7 +442,7 @@ export async function migrateProject(options: ProjectMigrationOptions): Promise<
   }
   const baseLocale = options.baseLocale ?? options.locale ?? 'en';
   if (!Object.hasOwn(catalogs, baseLocale)) throw new Error(`Migration input has no base locale ${JSON.stringify(baseLocale)}.`);
-  compileProject({ ...options, baseLocale, catalogs, notes: undefined });
+  compileProject({ ...options, baseLocale, catalogs, notes: undefined, scopes: staticScopes(options.scopes) });
   await filesAbsent(previews.map(item => item.destination));
   const messageIds: string[] = [], idBySource = new Map<string, string>(), ambiguousSources = new Set<string>();
   const collectIds = (value: unknown, path: string[]): void => {

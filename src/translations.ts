@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { checkProject, CompileError } from './compiler.js';
 import type { Catalog, Diagnostic } from './compiler.js';
+import { staticScopes } from './scope-modules.js';
 import type { GenerateOptions } from './project.js';
 import { invalidJson, locateDiagnostics } from './catalog-diagnostics.js';
 import type { CatalogSource } from './catalog-diagnostics.js';
@@ -94,7 +95,7 @@ function indexCatalog(catalog: Catalog, locale: string): Map<string, Leaf> {
 /** Export stable IDs as msgctxt and preserve the entire ICU message in msgid/msgstr. */
 export async function exportPo(options: TranslationOptions): Promise<ExportPoResult> {
   const input = await load(options);
-  const checked = checkProject({ ...options, catalogs: input.catalogs, missing: 'fallback', notes: undefined });
+  const checked = checkProject({ ...options, catalogs: input.catalogs, missing: 'fallback', notes: undefined, scopes: staticScopes(options.scopes) });
   if (!checked.ok) throw new CompileError(locateDiagnostics(checked.errors, input.sources));
   const base = indexCatalog(input.catalogs[options.baseLocale]!, options.baseLocale);
   const target = indexCatalog(input.catalogs[options.locale] ?? {}, options.locale);
@@ -183,7 +184,7 @@ export async function importPo(options: ImportPoOptions): Promise<ImportPoResult
     accepted.set(entry.id, entry.line);
   }
   input.catalogs[options.locale] = target;
-  const checked = checkProject({ ...options, catalogs: input.catalogs, notes: undefined });
+  const checked = checkProject({ ...options, catalogs: input.catalogs, notes: undefined, scopes: staticScopes(options.scopes) });
   // Edited values have PO coordinates; untouched values keep JSON coordinates.
   const translated = (diagnostic: Diagnostic): Diagnostic => {
     const line = diagnostic.locale === options.locale ? accepted.get(diagnostic.messageId ?? '') : undefined;

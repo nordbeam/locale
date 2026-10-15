@@ -31,6 +31,13 @@ import {
 export type { NextLocaleCookieOptions as TanStackStartLocaleCookieOptions, NextLocalePrefixMode as TanStackStartLocalePrefixMode, NextDomain as TanStackStartDomain } from './next-routing.js';
 export { localeHeader as NORDBEAM_LOCALE_HEADER };
 
+declare module '@tanstack/react-router' {
+  interface StaticDataRouteOption {
+    /** The catalog scope this route and its child routes read their messages from, a key of the `scopes` option. */
+    i18nScope?: string;
+  }
+}
+
 /**
  * The routing object shared by the request middleware and the router rewrite.
  * `pathnames` keys are TanStack Router route paths: `/blog/$slug` and the
@@ -292,7 +299,18 @@ export interface TanStackStartI18nOptions<Locale extends string, Messages> {
   /** The generated `loadLocale`, or a `selectMessages(...)` loader for the messages the app reads.
    * A wrapper keeps the catalog preload hint with `Object.assign(wrapper, loadLocale)`. */
   readonly loadLocale: (locale: Locale) => Promise<LoadedLocale<Locale, Messages>>;
+  /**
+   * Smaller catalogs, by scope name: the generated `loadLocale` of `i18n/scopes/<name>/index.js`.
+   * A route takes a scope's catalog with `staticData: { i18nScope: '<name>' }`, and so do its
+   * child routes. A browser that opens such a page loads only that catalog, and loads the full
+   * one when it navigates to a page outside the scope. The server renders with the full
+   * catalog. The browser learns the scope of the first page from `useHtmlAttributes()`.
+   */
+  readonly scopes?: Readonly<Record<string, (locale: Locale) => Promise<LoadedLocale<Locale, unknown>>>>;
 }
+
+/** The `<html>` attribute that names the scope of the server-rendered page. */
+const scopeAttribute = 'data-nordbeam-locale-scope';
 
 /** In a server build, the Vite plugin puts the client chunks of each locale's catalog
  * on the generated `loadLocale` under this symbol. */
@@ -313,7 +331,7 @@ interface RootBeforeLoadOptions {
   readonly serverContext?: { readonly locale?: unknown };
 }
 
-type RootBeforeLoadMatches = readonly { invalid?: boolean; readonly routeId?: unknown }[];
+type RootBeforeLoadMatches = readonly { invalid?: boolean; readonly routeId?: unknown; readonly staticData?: { readonly i18nScope?: unknown } }[];
 
 /**
  * Locale handling for a TanStack Start application, built on the router
@@ -331,7 +349,94 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
   const config = localePrefixConfig(core);
   const react = createSuspenseI18n<Locale, Messages>(options.loadLocale);
   const cookie = localeCookieAttributes(core);
-  const catalogAssets = (options.loadLocale as { readonly [catalogAssetsKey]?: Readonly<Record<string, readonly string[]>> })[catalogAssetsKey];
+  const assetsOf = (loader: unknown) => (loader as { readonly [catalogAssetsKey]?: Readonly<Record<string, readonly string[]>> } | undefined)?.[catalogAssetsKey];
+  const catalogAssets = assetsOf(options.loadLocale);
+  const scopes = options.scopes ?? {};
+  const scoped = Object.keys(scopes).length > 0;
+  // In the browser, the catalog primed into `react` for each locale: a scope name, or '' for the full catalog.
+  const installed = new Map<Locale, string>();
+  // Loads by catalog and locale, so a preload and the navigation after it share one request.
+  const loads = new Map<string, Promise<LoadedLocale<Locale, Messages>>>();
+  // Catalogs being put in, by locale. `load` waits for them, so a call during hydration
+  // gets the scope the page needs instead of starting the full catalog.
+  const installing = new Map<Locale, Promise<void>>();
+
+  /** The scope of a page: the deepest route that names one. A name missing from `scopes` means the full catalog. */
+  function routeScope(matches: readonly { readonly staticData?: { readonly i18nScope?: unknown } }[]): string | undefined {
+    for (let index = matches.length - 1; index >= 0; index--) {
+      const scope = matches[index]?.staticData?.i18nScope;
+      if (typeof scope === 'string') return Object.hasOwn(scopes, scope) ? scope : undefined;
+    }
+    return undefined;
+  }
+
+  function documentScope(): string | undefined {
+    if (!scoped) return undefined;
+    const value = (globalThis as unknown as { readonly document?: { readonly documentElement: { getAttribute(name: string): string | null } } }).document?.documentElement.getAttribute(scopeAttribute);
+    return value && Object.hasOwn(scopes, value) ? value : undefined;
+  }
+
+  function loadCatalog(catalog: string, locale: Locale): Promise<LoadedLocale<Locale, Messages>> {
+    const key = `${catalog}\0${locale}`;
+    let loading = loads.get(key);
+    if (!loading) {
+      const loader = catalog ? scopes[catalog]! : options.loadLocale;
+      const started = Promise.resolve().then(() => loader(locale)).then(loaded => {
+        if (loaded.locale !== locale) throw new Error(`Locale loader returned ${loaded.locale} for ${locale}`);
+        return loaded as LoadedLocale<Locale, Messages>;
+      });
+      started.catch(() => { if (loads.get(key) === started) loads.delete(key); });
+      loads.set(key, loading = started);
+    }
+    return loading;
+  }
+
+  /**
+   * Loads the catalog a page of `scope` needs in `locale`, and with `install`, makes the
+   * Provider render with it. On the server, and without scopes, that is the full catalog.
+   * In the browser a scope's own catalog serves its pages until the full one is in. The
+   * catalog on screen is never swapped for one that may lack its messages: a page outside
+   * the scope, or of another scope, moves to the full catalog.
+   */
+  function ensure(locale: Locale, scope: string | undefined, install: boolean): Promise<void> {
+    if (!scoped || !(globalThis as unknown as { document?: unknown }).document) return react.preload(locale).then(() => undefined);
+    const job = put(locale, scope, install);
+    if (install) {
+      installing.set(locale, job);
+      const settle = () => { if (installing.get(locale) === job) installing.delete(locale); };
+      job.then(settle, settle);
+    }
+    return job;
+  }
+
+  async function put(locale: Locale, scope: string | undefined, install: boolean): Promise<void> {
+    // A catalog `react` loaded on its own, after an invalidation, is the full one.
+    const current = () => react.isLoaded(locale) ? installed.get(locale) ?? '' : undefined;
+    const before = current();
+    if (before === '' || (before !== undefined && before === scope)) return;
+    const catalog = before === undefined ? scope ?? '' : '';
+    const loaded = await loadCatalog(catalog, locale);
+    if (!install) return;
+    const now = current();
+    if (now === '' || now === catalog) return;
+    // Another navigation put a different scope in while this one loaded.
+    if (now !== undefined && catalog) return put(locale, scope, install);
+    react.prime(loaded);
+    installed.set(locale, catalog);
+  }
+
+  /** The messages in use for `locale`, loading the full catalog when none are. */
+  function load(locale: Locale): Promise<LoadedLocale<Locale, Messages>> {
+    const pending = installing.get(locale);
+    return pending ? pending.then(() => react.preload(locale), () => react.preload(locale)) : react.preload(locale);
+  }
+
+  function invalidate(locale?: Locale): void {
+    react.invalidate(locale);
+    if (locale === undefined) { installed.clear(); loads.clear(); return; }
+    installed.delete(locale);
+    for (const key of loads.keys()) if (key.endsWith(`\0${locale}`)) loads.delete(key);
+  }
 
   function scopeFor(host: string | undefined | null): NextRouting<Locale, any> {
     return domainRouting(core, host) ?? core;
@@ -381,7 +486,7 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
    */
   async function hydrate(): Promise<void> {
     const locale = documentLocale(core);
-    if (locale) await react.preload(locale).then(() => undefined, () => undefined);
+    if (locale) await ensure(locale, documentScope(), true).catch(() => undefined);
   }
 
   /**
@@ -392,7 +497,7 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
   function routerOptions() {
     const state = createRouterState();
     // Start the browser's catalog request before hydration reaches the provider.
-    if (documentLocale(core)) void react.preload(state.locale).catch(() => undefined);
+    if (documentLocale(core)) void ensure(state.locale, documentScope(), true).catch(() => undefined);
     return { rewrite: createRewrite(state), context: { i18n: state } satisfies TanStackStartRouterContext<Locale>, hydrate };
   }
 
@@ -419,7 +524,8 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
   /**
    * The root route's `beforeLoad`. It resolves the locale of the URL, loads its
    * messages, and returns `{ locale }` as route context for every route.
-   * Navigation waits for the catalog, so a locale switch never shows a flash.
+   * Navigation waits for the catalog, so a locale switch never shows a flash,
+   * and neither does a page outside the scope the browser loaded.
    */
   async function beforeLoad(options: RootBeforeLoadOptions): Promise<{ locale: Locale }> {
     const { location, context, preload, serverContext } = options;
@@ -436,7 +542,7 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
       adopt(state, locale);
     }
     if (!preload && (globalThis as unknown as { document?: unknown }).document) browserLocale = locale;
-    await react.preload(locale);
+    await ensure(locale, routeScope(matches), !preload);
     return { locale };
   }
 
@@ -445,15 +551,27 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
     return useRouterState({ select: state => (state.matches[0]?.context as { locale?: Locale } | undefined)?.locale ?? core.defaultLocale }) as Locale;
   }
 
-  /** The `lang` and `dir` attributes for `<html>`, for the root `shellComponent`. */
-  function useHtmlAttributes(): { readonly lang: Locale; readonly dir: 'ltr' | 'rtl' } {
+  /** The scope of the page being shown. */
+  function useRouteScope(): string | undefined {
+    return useRouterState({ select: state => routeScope(state.matches as readonly { readonly staticData?: { readonly i18nScope?: unknown } }[]) });
+  }
+
+  /**
+   * The attributes for `<html>`, for the root `shellComponent`: `lang`, `dir`, and on a
+   * page of a scope, the scope, which tells the browser which catalog the page needs.
+   */
+  function useHtmlAttributes(): { readonly lang: Locale; readonly dir: 'ltr' | 'rtl'; readonly 'data-nordbeam-locale-scope'?: string } {
     const lang = useCurrentLocale();
-    return { lang, dir: getLocaleDirection(lang) };
+    const scope = useRouteScope();
+    return scope === undefined ? { lang, dir: getLocaleDirection(lang) } : { lang, dir: getLocaleDirection(lang), [scopeAttribute]: scope };
   }
 
   /** Provides the messages of the page's locale. Render it once, in the root route's component. */
   function Provider({ children }: { children?: ReactNode }): ReactElement {
     const locale = useCurrentLocale();
+    // Only a navigation that changes the locale or the scope puts another catalog in, and
+    // either renders the Provider again, so the next page gets the catalog `beforeLoad` loaded.
+    const scope = useRouteScope();
     const router = useRouter();
     const state = stateOf(router.options.context);
     if (state) state.refreshLinks = () => router.update(router.options);
@@ -461,7 +579,9 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
     // the catalog with the entry chunk instead of after it, when the hydrate hook asks.
     // At low priority, because a high one competes with the render-blocking CSS and delays
     // first paint. `crossorigin` matches the module request, so the chunk is fetched once.
-    for (const href of catalogAssets?.[locale] ?? []) ReactDOM.preload?.(href, { as: 'script', crossOrigin: '', fetchPriority: 'low' });
+    // A page of a scope hints the scope's catalog, the one the browser loads for it.
+    const assets = scope === undefined ? catalogAssets : assetsOf(scopes[scope]);
+    for (const href of assets?.[locale] ?? []) ReactDOM.preload?.(href, { as: 'script', crossOrigin: '', fetchPriority: 'low' });
     // The `hydrate` hook and the root `beforeLoad` load the catalog before anything renders
     // it, so this boundary only catches a catalog that was invalidated or never requested.
     return createElement(React.Suspense, { fallback: null }, createElement(react.Provider, { locale }, children));
@@ -484,7 +604,7 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
     return useCallback(async (locale: Locale): Promise<void> => {
       if (!core.locales.includes(locale)) throw new RangeError(`Unsupported locale: ${locale}`);
       // Load first, so the page changes language in one commit.
-      await react.preload(locale);
+      await ensure(locale, routeScope(router.state.matches as readonly { readonly staticData?: { readonly i18nScope?: unknown } }[]), true);
       const attributes = cookie && !cookie.httpOnly ? documentCookie() : undefined;
       attributes?.set(serializeCookie(cookie!.name, locale, { path: '/', maxAge: cookie!.maxAge, sameSite: cookie!.sameSite, ...(cookie!.secure === undefined ? {} : { secure: cookie!.secure }) }));
       const state = stateOf(router.options.context);
@@ -543,10 +663,11 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
     useMessages: react.useMessages,
     useI18n: react.useI18n,
     useSetLocale,
-    /** Loads and caches the messages of `locale`. Use it in loaders and server functions: `(await i18n.load(locale)).messages`. */
-    load: react.preload,
+    /** Loads and caches the messages of `locale`. Use it in loaders and server functions: `(await i18n.load(locale)).messages`.
+     * In the browser, on a page of a scope, these are the scope's messages. */
+    load,
     isLoaded: react.isLoaded,
-    invalidate: react.invalidate,
+    invalidate,
     loadLocale: options.loadLocale,
   } as const;
 }

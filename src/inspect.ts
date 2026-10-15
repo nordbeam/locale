@@ -6,6 +6,7 @@ import { describeMessageContract } from './contracts.js';
 import type { ContractArgumentKind } from './contracts.js';
 import { inputDigest } from './persistent-cache.js';
 import { readNotes } from './notes.js';
+import { resolveModuleScopes, staticScopes } from './scope-modules.js';
 import type { InputDigest } from './persistent-cache.js';
 import { check, discoverCatalogs, readOutputManifest } from './project.js';
 import type { GenerateOptions } from './project.js';
@@ -339,7 +340,9 @@ export async function inspectProject(options: GenerateOptions, configFile: strin
   const integrations = await frameworkIntegrations(root, options.outDir ?? 'src/i18n');
   // The same options and catalog bytes that generate() hashes, so a match means
   // the recorded output is what these inputs would produce.
-  const { persistentCache, ...compilerOptions } = options;
+  const scoped = await resolveModuleScopes({ ...options, root }, baseFile ? [...base.keys()] : undefined)
+    .catch(() => ({ scopes: staticScopes(options.scopes), computed: [] }));
+  const { persistentCache, ...compilerOptions } = { ...options, scopes: scoped.scopes, ...(scoped.computed.length ? { checkedScopes: scoped.computed } : {}) };
   const notes = await readNotes(options).catch(() => undefined);
   const ignored = checked.warnings.filter(warning => warning.code === 'IGNORED_CATALOG_FILE').map(warning => (warning.file ?? '').slice(input.length + 1));
   const current = await inputDigest({ ...compilerOptions, ...(notes ? { notes } : {}) }, [...texts].map(([file, text]) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n', ignored);

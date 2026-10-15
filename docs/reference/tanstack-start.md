@@ -292,7 +292,9 @@ route's `component`. It has its own `Suspense` boundary with an empty fallback.
 The `hydrate` hook and the root `beforeLoad` load each catalog before it renders,
 so the boundary does not suspend on the page's own locale.
 `useHtmlAttributes()` returns `{ lang, dir }` for `<html>`; `dir` is `rtl` for
-right-to-left scripts. Use it in the `shellComponent`. It falls back to the
+right-to-left scripts. On a page of a [scope](#scopes) it adds
+`data-nordbeam-locale-scope`, which tells the browser which catalog the page
+needs. Use it in the `shellComponent`. It falls back to the
 default locale when the root route failed before it resolved a locale.
 
 ### Hooks
@@ -381,9 +383,71 @@ catalog is requested once, and that the server-rendered heading is still the
 same element after hydration when its catalog arrives a second late.
 
 A locale switch loads its catalog before the URL changes. Other locales are
-fetched only when the user switches to them. Use configured
-[scopes](../GUIDE.md#scopes-and-named-imports) with a scope's `loadLocale` to keep unused messages
-out of the client bundle.
+fetched only when the user switches to them.
+
+## Scopes
+
+The catalog holds every message of the app, so a visitor who opens one public
+page downloads the messages of the whole app before it hydrates. A
+[scope](../GUIDE.md#scopes-computed-from-code) is a smaller catalog for part of
+the app, and the adapter can load it for the pages it covers:
+
+```json
+{
+  "scopes": {
+    "site": {
+      "modules": ["src/routes/__root.tsx", "src/routes/index.tsx", "src/routes/pricing.tsx"],
+      "exclude": ["src/routeTree.gen.ts"]
+    }
+  }
+}
+```
+
+```ts
+// src/i18n/tanstack.ts
+import { loadLocale } from './index';
+import { loadLocale as loadSite } from './scopes/site/index';
+
+export const i18n = createTanStackStartI18n({ routing, loadLocale, scopes: { site: loadSite } });
+```
+
+```tsx
+// src/routes/pricing.tsx
+export const Route = createFileRoute('/pricing')({
+  staticData: { i18nScope: 'site' },
+  component: Pricing,
+});
+```
+
+A route takes a scope with `staticData: { i18nScope }`, and its child routes
+take it too; the deepest route that names a scope decides, and a name missing
+from `scopes` means the full catalog. The adapter adds `i18nScope` to TanStack's
+`StaticDataRouteOption`. List the same route files in the scope's `modules`, so
+the scope has the messages those pages read.
+
+- The server renders every page with the full catalog. On a page of a scope it
+  writes `data-nordbeam-locale-scope` on `<html>` through `useHtmlAttributes()`,
+  and hints the scope's catalog chunks instead of the full catalog's.
+- The browser loads the catalog that attribute names. Without the attribute,
+  it loads the full catalog.
+- A navigation to a page outside the scope, or of another scope, loads the full
+  catalog in the root `beforeLoad` and renders the next page with it. The full
+  catalog then serves every page, so the browser loads it at most once. A
+  preload of such a page fetches it without changing the page on screen.
+- A locale switch on a page of a scope loads the new locale's scope.
+- In the browser, `load(locale)` returns the catalog in use, which on a page of
+  a scope is the scope's. While that catalog is still loading, as in a
+  `hydrate` hook of your own, it waits for it instead of loading the full one.
+
+A page of a scope that reads a message outside it gets `undefined` and fails in
+the browser, while the server, which uses the full catalog, renders it. In
+development the `loadLocale` of a scope computed from code logs each such read; open
+the scope's pages in development before you ship a change to its modules.
+On Nordsynk's marketing pages, a scope computed from the 59 marketing route
+files holds 2,717 of the app's 7,629 messages. It halved the catalog download
+(135.7 to 68.2 KB brotli for Swedish) and made hydration 0.40 to 0.71 s earlier
+on a slow 4G profile, with first paint unchanged (medians of 5 runs on 5 pages,
+against the same build without `scopes`).
 
 ## Limitations
 

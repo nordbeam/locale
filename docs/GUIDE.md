@@ -234,6 +234,56 @@ validated when the configuration is read; see [config](reference/config.md).
 Use a scope when a bundle boundary is deliberate, such as a route group that
 should load only its own messages.
 
+### Scopes computed from code
+
+A list of IDs goes stale as pages change. A scope can instead name the files
+that render a part of the app, and take the messages those files and their
+imports name:
+
+```json
+{
+  "scopes": {
+    "site": {
+      "modules": ["src/routes/__root.tsx", "src/routes/index.tsx", "src/routes/pricing.tsx", "src/routes/blog.*.tsx"],
+      "exclude": ["src/routeTree.gen.ts"],
+      "messages": ["legal.*"]
+    }
+  }
+}
+```
+
+The generator starts at the files that `modules` matches and follows their
+static and dynamic imports through the app's own source: relative paths,
+`tsconfig.json` `paths`, and `/src/...` paths. It never enters `node_modules`,
+the generated output, or a file that `exclude` matches. Exclude a file that
+imports far more than the scope needs, such as a generated route tree that
+imports every route. A file contributes each message ID it names:
+
+- in a string literal: `'pricing.title'`;
+- in a property chain: `m.pricing.title()`, and `pricing.title()` after
+  `const { pricing } = m`;
+- in a template literal, as a pattern: `` `pricing.plan.${id}` `` takes every ID
+  of that shape. The literal start must contain a dot.
+
+`messages` adds IDs and `prefix.*` patterns the code does not name, such as IDs
+read through a deeper alias (`const plan = m.pricing.plan; plan.title()`). The
+scope is recomputed on every generation, and in a watch session when a file it
+was computed from changes, so it follows the code. A module pattern that
+matches no file fails generation with
+[`SCOPE_MODULE_NOT_FOUND`](reference/errors.md#scope_module_not_found); modules
+that name no message fail with [`EMPTY_SCOPE`](reference/errors.md#empty_scope).
+
+The crawl reads text; it does not run or type-check the code, so it can take a
+message the page never shows, which costs only bytes. A message it misses is a
+bug on the page, so in development the scope's `loadLocale` checks every read:
+reading a message that the catalog has and the scope left out logs
+`Nordbeam Locale: message "…" is not in the "site" scope` to the console.
+Production output has no check.
+
+The TanStack Start adapter can load a scope's catalog for the pages it covers
+and the full catalog for the rest; see
+[Scopes in TanStack Start](reference/tanstack-start.md#scopes).
+
 ## Generated artifacts
 
 The `artifacts` option controls which files are emitted:

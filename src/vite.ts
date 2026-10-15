@@ -397,20 +397,26 @@ export function nordbeamLocale(options?: ViteOptions): Plugin {
         sharing.set(this.environment, new Sharing(selections!, inputs));
       } else sharing.delete(this.environment);
       if (!catalogWatch) for (const file of result.catalogFiles) this.addWatchFile(file);
+      // A module scope follows the code it was computed from, type-only imports included.
+      for (const file of result.scopeFiles) this.addWatchFile(file);
     },
     async hotUpdate(ctx) {
       if (closing) return [];
       if (ctx.type === 'delete') devSelections?.removeFile(this.environment, ctx.file);
       // Notes change declarations only, so no module needs an update.
-      if (ctx.file !== notes && (dirname(ctx.file) !== input || !ctx.file.endsWith('.json'))) { devSelections?.schedule(); return; }
+      const catalog = ctx.file === notes || (dirname(ctx.file) === input && ctx.file.endsWith('.json'));
+      // An edit to a file a module scope was computed from can add or drop scope messages.
+      const scoped = !catalog && project.scopeFiles.includes(resolve(ctx.file));
+      if (!catalog) devSelections?.schedule();
+      if (!catalog && !scoped) return;
       const key = `${ctx.file}:${ctx.timestamp}:${ctx.type}`;
       let job = updates.get(key);
       if (!job) {
         let compiled: string | undefined;
         // Vite's read() waits for editors that temporarily truncate files.
-        job = run(ctx.type === 'delete' ? undefined : async file => file === ctx.file ? (compiled = await ctx.read()) : readFile(file, 'utf8'))
+        job = run(!catalog || ctx.type === 'delete' ? undefined : async file => file === ctx.file ? (compiled = await ctx.read()) : readFile(file, 'utf8'))
           .then(({result,virtual}) => ({changed:result.changed,virtual}));
-        if (ctx.type !== 'delete') job.then(() => recheckCatalog(ctx.file, compiled), () => recheckCatalog(ctx.file, compiled));
+        if (catalog && ctx.type !== 'delete') job.then(() => recheckCatalog(ctx.file, compiled), () => recheckCatalog(ctx.file, compiled));
         updates.set(key, job);
         if (updates.size > 8) updates.delete(updates.keys().next().value!);
       }

@@ -17,6 +17,10 @@ import {
 - `notes` — a JSON file of [notes about messages](../GUIDE.md#notes-about-messages),
   shaped like a catalog, relative to the config and outside the catalog
   directory.
+- `scopes` — loaders for parts of the catalog, by name. A scope is a nonempty
+  array of IDs and dotted `prefix.*` patterns, or `{ modules, exclude?, messages? }`
+  to take the messages that the files `modules` matches, and their imports, name.
+  See [scopes computed from code](../GUIDE.md#scopes-computed-from-code).
 - `lockedKeys` and `ignoredKeys` — exact IDs or dotted `prefix.*` patterns for
   source-verbatim and excluded messages; overlap is rejected during validation.
 - `resolveKeyPolicy(id, options)` — return the validated lock/ignore decision

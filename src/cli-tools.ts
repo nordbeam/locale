@@ -3,6 +3,7 @@ import { dirname, extname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { checkProject, CompileError } from './compiler.js';
 import type { Catalog, Diagnostic } from './compiler.js';
+import { staticScopes } from './scope-modules.js';
 import { generate } from './project.js';
 import type { GenerateOptions } from './project.js';
 import { invalidJson, locateDiagnostics } from './catalog-diagnostics.js';
@@ -396,7 +397,7 @@ function codeMask(text: string): Uint8Array {
 }
 
 function validate(options: GenerateOptions, catalogs: Record<string, Catalog>): { warnings: Diagnostic[] } {
-  const result = checkProject({ ...options, catalogs, notes: undefined });
+  const result = checkProject({ ...options, catalogs, notes: undefined, scopes: staticScopes(options.scopes) });
   if (!result.ok) throw new CompileError([...result.errors]);
   return { warnings: result.warnings };
 }
@@ -502,7 +503,7 @@ export async function pruneMessages(options: RefactorOptions & { dryRun?: boolea
 export async function doctor(options: RefactorOptions): Promise<DoctorResult> {
   let checked;
   try {
-    const input = await loadCatalogs(options), result = checkProject({ ...options, catalogs: input.catalogs, notes: undefined });
+    const input = await loadCatalogs(options), result = checkProject({ ...options, catalogs: input.catalogs, notes: undefined, scopes: staticScopes(options.scopes) });
     const errors = locateDiagnostics(result.errors, input.sources), warnings = locateDiagnostics(result.warnings, input.sources);
     const base = input.catalogs[options.baseLocale];
     const ids = base ? leaves(base, options.baseLocale).map(item => item.id) : [];
@@ -551,7 +552,7 @@ export async function pseudoCatalog(options: PseudoOptions): Promise<PseudoResul
   if (existing && !options.update) fail('PSEUDO_TARGET_EXISTS', `Refusing to overwrite ${targetFile}. Pass --update to replace an existing pseudo catalog.`, { file: targetFile });
   const pseudo = pseudoLocalizeCatalog(source, { expansion: options.expansion });
   const catalogs = { ...input.catalogs, [options.locale]: pseudo };
-  const checked = checkProject({ ...options, catalogs, missing: 'fallback', notes: undefined });
+  const checked = checkProject({ ...options, catalogs, missing: 'fallback', notes: undefined, scopes: staticScopes(options.scopes) });
   if (!checked.ok) throw new CompileError(locateDiagnostics(checked.errors, input.sources));
   const sourceText = existing?.text ?? input.files.find(file => file.locale === fromLocale)?.text ?? '';
   const output = serialize(pseudo, sourceText);

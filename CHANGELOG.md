@@ -9,6 +9,29 @@ out in this file.
 
 ### `@nordbeam/locale`
 
+- **Scopes computed from code.** A scope can now be
+  `{ modules, exclude?, messages? }` instead of a list of IDs. The generator
+  follows the imports of the files `modules` matches through the app's own
+  source (relative paths, `tsconfig.json` `paths`, `/src/...`), and takes the
+  message IDs they name in string literals, property chains (`m.pricing.title`)
+  and template literals (`` `plan.${id}.name` `` as a pattern). The scope is
+  recomputed on every generation, and under the Vite plugin when one of its
+  files changes, so it follows the code instead of going stale. In development,
+  the `loadLocale` of a computed scope logs each read of a message that the
+  scope left out.
+  New errors: `SCOPE_MODULE_NOT_FOUND`, `EMPTY_SCOPE`.
+- **TanStack Start: public pages can load a smaller catalog.** Pass
+  `scopes: { site: loadSiteLocale }` to `createTanStackStartI18n` and mark
+  routes with `staticData: { i18nScope: 'site' }`. The browser loads the
+  scope's catalog on those pages, and the full catalog only once it navigates
+  to a page outside the scope. The server renders with the full catalog,
+  names the scope on `<html>` through `useHtmlAttributes()`, and hints the
+  scope's chunks. On Nordsynk's marketing pages, a scope computed from 59
+  route files (2,717 of 7,629 messages) halved the catalog download (135.7 to
+  68.2 KB brotli) and made hydration 0.40 to 0.71 s earlier on slow 4G, with
+  first paint unchanged.
+- **React: `createSuspenseI18n(...).prime(snapshot)`** uses messages loaded
+  elsewhere for their locale, such as a scope's catalog, without suspending.
 - **TanStack Start: hydration no longer blanks the page while the catalog
   loads.** The `Provider` suspended when hydration reached a catalog that was
   still loading. The first update above it, such as an effect that sets state,

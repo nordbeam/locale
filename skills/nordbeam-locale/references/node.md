@@ -58,6 +58,8 @@ For a feature or route bundle, declare scopes in `nordbeam-locale.config.json`:
 
 This generates `src/i18n/scopes/site/index.js` exporting `locales` and `loadLocale` for just those messages. Pattern rules are validated when the config is read.
 
+A scope can be computed from code instead: `{ "scopes": { "site": { "modules": ["src/routes/index.tsx"], "exclude": ["src/routeTree.gen.ts"], "messages": ["legal.*"] } } }` takes the message IDs that the matched files and their imports (relative, tsconfig `paths`, `/src/...`; never node_modules) name in string literals, property chains (`m.pricing.title`) and template literals (`` `plan.${id}.name` `` as a pattern). `messages` adds what the code builds out of reach, such as IDs read through a deeper alias. A pattern matching no file is `SCOPE_MODULE_NOT_FOUND`; modules naming no message are `EMPTY_SCOPE`. In development the scope's `loadLocale` logs each read of a message the scope left out.
+
 ## Config worth knowing
 
 The accepted keys are `baseLocale`, `catalogs`, `outDir`, `missing` (`"fallback"` or `"error"`; `"error"` fails on untranslated keys without `--strict`), `formats` (named `number`, `date` and `time` styles from `Intl` options), `timeZone` (pin it for deterministic date/time output), `scopes`, `artifacts` (`typed` default, `runtime`, `loader`, `loader-typed`), `includeSources`, `shareLiterals`, `cache`, `persistentCache`, `selectionFallback`, `shareMessages`, `preloadManifest`, `staticLocale`, `lockedKeys` and `ignoredKeys`. An unknown key is `INVALID_CONFIG`. Full list: https://github.com/nordbeam/locale/blob/main/docs/reference/config.md The `schema` command writes JSON schemas so editors validate catalogs and the config.

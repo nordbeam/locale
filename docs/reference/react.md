@@ -9,6 +9,9 @@ import { createClientI18n, createReactI18n } from '@nordbeam/locale/react';
 - `createReactI18n(loadLocale)` — adapter for a preloaded snapshot or controlled
   server render.
 - `createSuspenseI18n(loadLocale)` — controlled Suspense resource adapter.
+  `prime(snapshot)` uses messages loaded elsewhere for their locale, such as a
+  scope's smaller catalog, in place of what `loadLocale` would load. A
+  `Provider` reads them the next time it renders, without suspending.
 - `createClientI18n(loadLocale)` — state-owning provider, hooks, preload, and
   locale switching for browser apps.
 - `rich` — re-export of the server-safe rich renderer.

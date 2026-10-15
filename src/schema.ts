@@ -62,7 +62,21 @@ export const configSchema: JsonSchema = {
     },
     scopes: {
       type: 'object',
-      additionalProperties: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+      additionalProperties: {
+        anyOf: [
+          { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+          {
+            type: 'object',
+            additionalProperties: false,
+            required: ['modules'],
+            properties: {
+              modules: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+              exclude: { type: 'array', items: { type: 'string', minLength: 1 } },
+              messages: { type: 'array', items: { type: 'string', minLength: 1 } },
+            },
+          },
+        ],
+      },
     },
     cache: {
       type: 'object',

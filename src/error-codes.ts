@@ -94,6 +94,8 @@ const definitions: Record<string, [explanation: string, fix: string, exitCode?: 
   INVALID_SCOPE: ['A scope name in the configuration is not a valid identifier.', 'Start the scope name with a letter, then use only letters, digits, underscores or hyphens.'],
   INVALID_SELECTION: ['A requested loader or locale is not part of the generated project.', 'Use a locale that has a catalog, or add the catalog and regenerate.'],
   INVALID_FORMAT: ['An ICU number, date or time pattern or skeleton was rejected by Intl.', 'Correct the pattern or skeleton named in the message.'],
+  EMPTY_SCOPE: ['The modules of a scope name no message IDs, so its loader would hold no messages.', 'List the files that render the scope\'s messages in its modules, or add the messages to the scope.'],
+  SCOPE_MODULE_NOT_FOUND: ['A module pattern of a scope matches no files, so the scope cannot be computed.', 'Correct the pattern, relative to the project root, or remove it.'],
   EMPTY_SCOPE_PATTERN: ['A configured scope pattern matches no messages, so the scope selects nothing.', 'Correct the pattern, or remove the scope if it is no longer needed.'],
   INVALID_NOTES: ['The notes file cannot be read, is not JSON shaped like a catalog, or sits in the catalog directory.', 'Keep the notes file outside the catalog directory, as a JSON object whose leaves are note strings.'],
   UNKNOWN_NOTE: ['A note describes a message ID that is not in the base catalog, usually after a rename or a removal.', 'Move the note to the message\'s new ID, or delete it.'],

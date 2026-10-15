@@ -317,6 +317,14 @@ The template-literal key is dynamic, so its message ID cannot be known staticall
 
 **Fix:** Use a literal key, or migrate the call by hand.
 
+### EMPTY_SCOPE
+
+Severity: error.
+
+The modules of a scope name no message IDs, so its loader would hold no messages.
+
+**Fix:** List the files that render the scope's messages in its modules, or add the messages to the scope.
+
 ### EMPTY_SCOPE_PATTERN
 
 Severity: warning.
@@ -732,6 +740,14 @@ Severity: warning.
 ngx-translate pipes and directives in templates need an explicit template migration.
 
 **Fix:** Replace the translate pipe or directive in each template by hand.
+
+### SCOPE_MODULE_NOT_FOUND
+
+Severity: error.
+
+A module pattern of a scope matches no files, so the scope cannot be computed.
+
+**Fix:** Correct the pattern, relative to the project root, or remove it.
 
 ### SELECTION_FALLBACK
 

@@ -2,6 +2,7 @@ import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { compileProject, CompileError } from './compiler.js';
 import type { Catalog, CompiledProject } from './compiler.js';
+import { staticScopes } from './scope-modules.js';
 import { generate, markProject, writeProject } from './project.js';
 import type { GenerateOptions, GenerateResult } from './project.js';
 import { attachDeclarationMaps } from './source-maps.js';
@@ -492,7 +493,7 @@ export async function initialize(options: GenerateOptions, configFile: string, c
   if (seeded) {catalogs[options.baseLocale] = starter;baseText=JSON.stringify(starter,null,2)+'\n';}
   // Compilation and output ownership checks happen before creating source/config.
   let compiled: CompiledProject;
-  try { compiled = compileProject({...options, catalogs, notes: undefined}); }
+  try { compiled = compileProject({...options, catalogs, notes: undefined, scopes: staticScopes(options.scopes)}); }
   catch (error) { if (error instanceof CompileError) throw locateCompileError(error, sources); throw error; }
   sources.clear();
   attachDeclarationMaps(compiled,{file:baseFile,text:baseText},outDir);
@@ -523,7 +524,7 @@ export async function initialize(options: GenerateOptions, configFile: string, c
   const updated = await updatePackageScripts(root);
   const frameworkResult = framework ? await scaffoldFramework(root, outDir, framework, options.baseLocale) : undefined;
   return {
-    project: {...compiled, catalogFiles, changed, outDir}, seeded, created,
+    project: {...compiled, catalogFiles, scopeFiles: [], changed, outDir}, seeded, created,
     ...(updated ? { updated: [updated] } : {}),
     ...(framework ? { framework, frameworkCreated: frameworkResult!.created, frameworkExisting: frameworkResult!.existing, frameworkNotes: frameworkResult!.notes } : {}),
   };
@@ -535,7 +536,7 @@ export async function initialize(options: GenerateOptions, configFile: string, c
 export async function planInitialize(options: GenerateOptions, catalogs: Record<string, Catalog>, baseText: string, configFile: string, configExists: boolean, framework?: InitFramework): Promise<InitPlan> {
   const root = options.root ?? process.cwd();
   const outDir = resolve(root, options.outDir ?? 'src/i18n');
-  let compiled = compileProject({...options, catalogs, notes: undefined});
+  let compiled = compileProject({...options, catalogs, notes: undefined, scopes: staticScopes(options.scopes)});
   attachDeclarationMaps(compiled, {file: resolve(root, options.catalogs ?? 'messages', `${options.baseLocale}.json`), text: baseText}, outDir);
   compiled = markProject(compiled, !!options.development, resolve(root), resolve(root, options.catalogs ?? 'messages'));
   const generated: string[] = [];

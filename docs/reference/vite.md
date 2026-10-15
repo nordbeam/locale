@@ -1,7 +1,10 @@
 # Vite plugin — `@nordbeam/locale/vite`
 
 The Vite adapter generates modules before imports resolve, watches catalog edits,
-and can infer local message selection in development and production.
+and can infer local message selection in development and production. It also
+regenerates a [scope computed from code](../GUIDE.md#scopes-computed-from-code)
+when one of the files it was computed from changes, in `vite dev` and in watch
+builds.
 
 ```ts
 import { nordbeamLocale } from '@nordbeam/locale/vite';

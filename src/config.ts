@@ -53,10 +53,17 @@ export function validateConfig(value: unknown, file = configName): asserts value
     throw new Error(`${file}: persistentCache must be a boolean or nonempty string.`);
   }
   if (value.scopes !== undefined) {
-    if (!isRecord(value.scopes)) throw new Error(`${file}: scopes must be an object of scope names to message ID arrays.`);
+    if (!isRecord(value.scopes)) throw new Error(`${file}: scopes must be an object of scope names to message ID arrays or { modules, messages } objects.`);
+    const strings = (list: unknown, empty: boolean) => Array.isArray(list) && (empty || list.length > 0) && list.every(item => typeof item === 'string' && item);
     for (const [scope, patterns] of Object.entries(value.scopes)) {
-      if (!Array.isArray(patterns) || !patterns.length || patterns.some(pattern => typeof pattern !== 'string' || !pattern)) {
-        throw new Error(`${file}: scopes.${scope} must be a nonempty array of message IDs or prefix patterns.`);
+      if (isRecord(patterns)) {
+        const unknown = Object.keys(patterns).filter(key => key !== 'modules' && key !== 'exclude' && key !== 'messages');
+        if (unknown.length) throw new Error(`${file}: scopes.${scope} has unknown option ${JSON.stringify(unknown[0])}; use modules, exclude and messages.`);
+        if (!strings(patterns.modules, false)) throw new Error(`${file}: scopes.${scope}.modules must be a nonempty array of file patterns relative to the project root.`);
+        if (patterns.exclude !== undefined && !strings(patterns.exclude, true)) throw new Error(`${file}: scopes.${scope}.exclude must be an array of file patterns relative to the project root.`);
+        if (patterns.messages !== undefined && !strings(patterns.messages, true)) throw new Error(`${file}: scopes.${scope}.messages must be an array of message IDs or prefix patterns.`);
+      } else if (!strings(patterns, false)) {
+        throw new Error(`${file}: scopes.${scope} must be a nonempty array of message IDs or prefix patterns, or an object with modules.`);
       }
     }
   }

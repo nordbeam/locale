@@ -15,10 +15,16 @@ import { thenableKeyDiagnostics } from './key-policy.js';
 import type { CatalogSource } from './catalog-diagnostics.js';
 import { CliError } from './error-codes.js';
 import { catalogIds, notesFile, readNotes, unknownNotes } from './notes.js';
+import { resolveModuleScopes, staticScopes } from './scope-modules.js';
+import type { ScopeConfig } from './scope-modules.js';
+export type { ModuleScope, ScopeConfig } from './scope-modules.js';
 export { updateCatalogText } from './catalog-text.js';
 export type { CatalogTextChanges } from './catalog-text.js';
 
-export interface GenerateOptions extends Omit<CompilerOptions, 'catalogs' | 'notes'> {
+export interface GenerateOptions extends Omit<CompilerOptions, 'catalogs' | 'notes' | 'scopes' | 'checkedScopes'> {
+  /** Loaders for parts of the catalog, by name: message IDs and `prefix.*` patterns,
+   * or `{ modules, messages }` to take the messages that those modules and their imports name. */
+  scopes?: Readonly<Record<string, ScopeConfig>>;
   /** Directory containing one JSON catalog per locale. Default: messages. */
   catalogs?: string;
   /** JSON file of notes about messages, shaped like a catalog, relative to root.
@@ -36,6 +42,8 @@ export interface GenerateOptions extends Omit<CompilerOptions, 'catalogs' | 'not
 }
 export interface GenerateResult extends CompiledProject {
   catalogFiles: string[];
+  /** Source files read to compute module scopes. A change to one can change a scope. */
+  scopeFiles: string[];
   changed: string[];
   outDir: string;
 }
@@ -247,8 +255,12 @@ export async function check(options: GenerateOptions, read: (file: string) => Pr
   let notes: Awaited<ReturnType<typeof readNotes>>;
   try { notes = await readNotes(options, read); }
   catch (error) { if (!(error instanceof CompileError)) throw error; errors.push(...error.diagnostics); }
+  let scopes: Record<string, readonly string[]> | undefined;
+  const base = catalogs[options.baseLocale];
+  try { scopes = (await resolveModuleScopes(options, base && [...catalogIds(base)])).scopes; }
+  catch (error) { if (!(error instanceof CompileError)) throw error; errors.push(...error.diagnostics); scopes = staticScopes(options.scopes); }
   const { notes: _file, ...compilerOptions } = options;
-  const result = checkProject({ ...compilerOptions, catalogs });
+  const result = checkProject({ ...compilerOptions, scopes, catalogs });
   // A base file that could not be read/parsed is already explained by its load error.
   const baseFailed = errors.some(error => error.locale === options.baseLocale);
   errors.push(...locateDiagnostics(result.errors.filter(error => !baseFailed || error.code !== 'BASE_LOCALE_MISSING'), sources));
@@ -270,13 +282,17 @@ export function createGenerator(options: GenerateOptions, cacheOptions?: Compile
   const declarationMaps: DeclarationMapCache = new Map();
   let sources = new Map<string, { text: string; catalog: Catalog }>();
   let compiled: CompiledProject | undefined;
+  // Module scopes follow source code, so the same catalogs can produce other scopes.
+  let scopes: string | undefined;
   let tail: Promise<unknown> = Promise.resolve();
   return (read = file => readFile(file, 'utf8')) => {
     const job = tail.then(async () => {
       const next = new Map<string, { text: string; catalog: Catalog }>();
-      let nextCompiled = compiled;
+      let nextCompiled = compiled, nextScopes = scopes;
       const result = await generateProject(config, read, input => {
-        if (!nextCompiled || next.size !== sources.size || [...next].some(([file, item]) => item !== sources.get(file))) nextCompiled = compile(input);
+        const key = JSON.stringify(input.scopes ?? null);
+        if (!nextCompiled || key !== nextScopes || next.size !== sources.size || [...next].some(([file, item]) => item !== sources.get(file))) nextCompiled = compile(input);
+        nextScopes = key;
         // Keep the memoized output private even if callers edit returned metadata.
         return { ...nextCompiled, files: Object.assign(Object.create(null), nextCompiled.files), locales: [...nextCompiled.locales],
           groups: Object.assign(Object.create(null), Object.fromEntries(Object.entries(nextCompiled.groups).map(([entry, ids]) => [entry, [...ids]]))),
@@ -289,6 +305,7 @@ export function createGenerator(options: GenerateOptions, cacheOptions?: Compile
       }, declarationMaps);
       sources = next;
       compiled = nextCompiled;
+      scopes = nextScopes;
       return result;
     });
     tail = job.catch(() => undefined);
@@ -367,16 +384,24 @@ async function generateProject(options: GenerateOptions, read: (file: string) =>
     sources.push({ file, locale, text });
   }
   const notes = await readNotes(options, read);
+  // Module scopes become message ID lists before the digest, so a code change that
+  // names another message regenerates the scope.
+  const baseSource = sources.find(item => item.locale === options.baseLocale);
+  let baseIds: string[] | undefined;
+  if (baseSource) { try { baseIds = [...catalogIds(parseCatalog(baseSource.file, baseSource.text))]; } catch { /* Compilation reports it. */ } }
+  const scoped = await resolveModuleScopes({ ...options, root }, baseIds);
+  // Development loaders of computed scopes check reads, since the crawl can miss a message.
+  const resolved = { ...options, scopes: scoped.scopes, ...(scoped.computed.length ? { checkedScopes: scoped.computed } : {}) };
   // The digest covers what decides the output. The cache setting does not, so
   // enabling or disabling the artifact cache keeps the same manifest.
-  const { persistentCache, ...compilerOptions } = options;
+  const { persistentCache, ...compilerOptions } = resolved;
   const inputs = await inputDigest({ ...compilerOptions, ...(notes ? { notes } : {}) }, sources.map(({ file, text }) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n',
     ignored.map(item => (item.file ?? '').slice(input.length + 1)));
   // Only stateless generation trusts the manifest. A watch session restores
   // its memory of the previous output instead.
   if (inputs && !output) {
     const restored = await verifiedOutput(outDir, inputs);
-    if (restored) return { ...restored, catalogFiles, changed: [], outDir };
+    if (restored) return { ...restored, catalogFiles, scopeFiles: scoped.files, changed: [], outDir };
   }
   // The cache is a shortcut around compilation. A stored project is written
   // through the same output path, so missing or modified files are restored.
@@ -401,7 +426,7 @@ async function generateProject(options: GenerateOptions, read: (file: string) =>
   let project: CompiledProject;
   if (stored) project = stored;
   else {
-    const { notes: _file, ...rest } = options;
+    const { notes: _file, ...rest } = resolved;
     try { project = compile({ ...rest, catalogs, ...(notes ? { notes } : {}) }); }
     catch (error) { if (error instanceof CompileError) throw locateCompileError(error, catalogSources); throw error; }
   }
@@ -417,5 +442,5 @@ async function generateProject(options: GenerateOptions, read: (file: string) =>
     const encoded = encodeCache(project, key);
     if (encoded) await atomicWrite(cacheFile, encoded).catch(() => undefined);
   }
-  return { ...project, warnings, catalogFiles, changed, outDir };
+  return { ...project, warnings, catalogFiles, scopeFiles: scoped.files, changed, outDir };
 }

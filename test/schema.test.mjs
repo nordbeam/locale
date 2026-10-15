@@ -31,7 +31,7 @@ test('catalog and config schemas are deterministic and editor-friendly', () => {
 test('config validation catches unknown and malformed options while allowing editor schema metadata', () => {
   assert.doesNotThrow(() => validateConfig({
     $schema: './src/i18n/config.schema.json', baseLocale: 'en', catalogs: 'messages', outDir: 'src/i18n',
-    missing: 'fallback', development: true, scopes: { checkout: ['checkout.*'] },
+    missing: 'fallback', development: true, scopes: { checkout: ['checkout.*'], site: { modules: ['src/routes/*.tsx'], exclude: ['src/routeTree.gen.ts'], messages: ['legal.*'] } },
     formats: { number: { money: { style: 'currency', currency: 'EUR' } } },
     cache: { maxMessageCacheBytes: 0 }, persistentCache: false, artifacts: 'loader-typed', includeSources: ['checkout.pay'], shareLiterals: true,
   }, 'config.json'));
@@ -40,6 +40,8 @@ test('config validation catches unknown and malformed options while allowing edi
   assert.throws(() => validateConfig({ development: 'yes' }, 'config.json'), /development must be a boolean/);
   assert.throws(() => validateConfig({ shareLiterals: 'yes' }, 'config.json'), /shareLiterals must be a boolean/);
   assert.throws(() => validateConfig({ scopes: { checkout: [] } }, 'config.json'), /scopes\.checkout/);
+  assert.throws(() => validateConfig({ scopes: { site: { modules: [] } } }, 'config.json'), /scopes\.site\.modules/);
+  assert.throws(() => validateConfig({ scopes: { site: { modules: ['src/a.ts'], files: [] } } }, 'config.json'), /scopes\.site has unknown option "files"/);
   assert.throws(() => validateConfig({ cache: { maxMessageCacheBytes: -1 } }, 'config.json'), /maxMessageCacheBytes/);
 });
 

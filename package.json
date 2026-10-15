@@ -213,7 +213,7 @@
   },
   "scripts": {
     "build": "node -e \"for (const dir of ['dist', 'packages/locale-migrate/dist']) require('node:fs').rmSync(dir, { recursive: true, force: true })\" && tsc -p tsconfig.json && tsc -p packages/locale-migrate/tsconfig.json",
-    "test": "npm run build && node --test --test-timeout=120000 test/*.test.mjs && node --conditions=browser --test test/solid-client.test.mjs",
+    "test": "npm run build && node --test --test-timeout=120000 test/*.test.mjs && node --conditions=browser --test test/solid-client.test.mjs test/tanstack-start-client.test.mjs",
     "check": "npm test && npm run example:build && npm run react:check && npm run next:check && npm run next:rtl:check && npm run next:advanced:check && npm run next:advanced:check:webpack && npm run tanstack-start:check",
     "prepack": "npm run build",
     "dev": "npm run build && vite --config examples/vite/vite.config.ts",

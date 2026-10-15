@@ -94,7 +94,7 @@ Generated modules export `loadLocale(locale)` (resolves `{ locale, messages }`),
 - Edit catalogs and application source only. Hand-edits to generated files are overwritten and make `verify` fail with `GENERATED_MODIFIED`; the fix is in the catalog, then `generate`.
 - Import generated modules with the `.js` extension in Vite, Node and TypeScript projects (`./i18n/index.js`), exactly as the scaffolds do. Next.js scaffolds import sibling `.ts` sources without an extension; copy the scaffold style.
 - Do not pass a loaded messages object or message functions from a Server Component to a Client Component. Pass the locale string.
-- `selectMessages` shrinks bundles only under the Vite plugin. In Next.js use configured `scopes` for route-sized chunks.
+- `selectMessages` shrinks bundles only under the Vite plugin. In Next.js use configured `scopes` for route-sized chunks. A scope can be computed from the files that render a part of the app (`{ "modules": [...] }`), and TanStack Start can load it for those routes (`staticData.i18nScope`).
 - A new base-catalog key with no translation is not an error until `--strict`; do not hide `FALLBACK_MESSAGE` warnings by copying English into other locales unless asked.
 - If a project already uses i18next, next-intl, react-intl, Lingui or similar and the user wants to move to Nordbeam, stop and use the `nordbeam-locale-migrate` skill instead of rewriting calls by hand.
 

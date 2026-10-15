@@ -4,6 +4,7 @@
  * @nordbeam/locale-migrate at exactly the same version.
  */
 export { checkProject, compileProject, CompileError } from './compiler.js';
+export { staticScopes } from './scope-modules.js';
 export type { Catalog, Diagnostic } from './compiler.js';
 export { discoverConfig, readConfig } from './config.js';
 export { initialize, planInitialize } from './init.js';
