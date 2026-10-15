@@ -5,7 +5,10 @@ documented here. The project follows [Semantic Versioning](https://semver.org/);
 before 1.0, minor versions may contain breaking changes, and they are called
 out in this file.
 
-## Unreleased
+## 0.4.0
+
+New commands for seeing where a project's translations stand: `report` and
+`hardcoded`. No breaking changes.
 
 ### `@nordbeam/locale`
 
@@ -40,6 +43,17 @@ out in this file.
   expression literals. It used to read the `m` flag in `/…/m.test(s)` as the
   messages object and report an unknown message ID, and a quote inside a
   regular expression could hide the rest of the line from the scan.
+- Dependencies: `@formatjs/icu-messageformat-parser` 3.5.21 and `magic-string`
+  1.4.3.
+
+### `@nordbeam/locale-migrate`
+
+- Dependencies: `fast-xml-parser` 5.11.2 and `yaml` 2.9.1. No other changes.
+
+### `nordbeam-locale`
+
+- Released at the same version as `@nordbeam/locale`.
+
 ## 0.3.0
 
 Breaking changes, all in the TanStack Start adapter: a `hydrate` router option
