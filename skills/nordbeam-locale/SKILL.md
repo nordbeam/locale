@@ -70,6 +70,7 @@ Messages are ICU MessageFormat strings. The shapes you need most:
 - Rich text uses XML-like tags; each tag becomes a typed callback argument. Keep the same tags in every translation.
 - Put formatting in the catalog (`number`, `date`, `time`, `::currency/EUR`, `::compact-short`) so translators control word order. Pin `"timeZone"` in the config when server and browser output must agree.
 - A translation must use exactly the base message's arguments and plural/select branches; extra or missing ones are reported (`UNKNOWN_ARGUMENT`, `MISSING_ARGUMENT`, `MISSING_PLURAL_CATEGORY`). Languages such as Arabic and Polish need more plural categories than English.
+- Context for translators (where the text appears, what an argument holds, review rules) goes in the notes file the config names with `"notes"`, keyed like the catalog, never in the message text. Notes show as `@remarks` on hover and as `#.` comments in PO exports; `rename` moves them, and `UNKNOWN_NOTE` means a note's message is gone.
 - Never build message text by concatenating fragments in code, and never use a computed key (`m[someVariable]`): static IDs keep the types and bundle pruning working.
 
 Full syntax with verified output for each form: [references/icu-messages.md](references/icu-messages.md).

@@ -1,10 +1,11 @@
 import { existsSync, watch } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { generate, createGenerator, check } from './project.js';
 import type { GenerateOptions } from './project.js';
+import { notesFile } from './notes.js';
 import { configName, configWarnings, discoverConfig, readConfig } from './config.js';
 import { CompileError, formatDiagnostic } from './diagnostics.js';
 import type { Diagnostic } from './compiler.js';
@@ -312,6 +313,7 @@ async function main(): Promise<void> {
     'messages-object': { type: 'string' },
     'messages-import': { type: 'string' },
     'messages-hook': { type: 'string' },
+    notes: { type: 'string' },
     'move-type-import': { type: 'string', multiple: true },
     'message-id-map': { type: 'string' },
     'custom-call': { type: 'string', multiple: true },
@@ -470,6 +472,7 @@ async function main(): Promise<void> {
   if (values['messages-import'] !== undefined && !codemodding) throw usageError('--messages-import is available with nordbeam-locale codemod.');
   if (values['move-type-import'] !== undefined && !codemodding) throw usageError('--move-type-import is available with nordbeam-locale codemod.');
   if (values['messages-hook'] !== undefined && !codemodding) throw usageError('--messages-hook is available with nordbeam-locale codemod.');
+  if (values.notes !== undefined && !migrating) throw usageError('--notes is available with nordbeam-locale migrate. Set "notes" in the config for the project\'s notes file.');
   if (values['messages-hook'] !== undefined && !values['messages-import']) throw usageError('--messages-hook requires --messages-import, the module that exports the hook.');
   if (values['move-type-import']?.length && !values['messages-import']) throw usageError('--move-type-import requires --messages-import as the explicit replacement type module.');
   if (values['message-id-map'] !== undefined && !migratingProject && !codemodding) throw usageError('--message-id-map is available with nordbeam-locale migrate-project or codemod.');
@@ -735,6 +738,7 @@ async function main(): Promise<void> {
       from: values.from!,
       format: values.format as MigrationFormat,
       out: values.out,
+      notes: values.notes,
       dryRun: values['dry-run'],
       locale: values.locale,
     });
@@ -744,6 +748,7 @@ async function main(): Promise<void> {
       printDiagnostics(result.warnings, 'yellow');
       for (const collision of result.collisions) fail(`${collision.code}: ${collision.message}`);
       if (result.destination) console.log(`nordbeam-locale: ${result.dryRun ? 'previewed' : result.changed.length ? 'migrated' : 'no changes'} ${plural(result.messageCount, 'message')} → ${displayPath(result.destination)}`);
+      if (result.notesDestination) console.log(`nordbeam-locale: ${result.dryRun ? 'previewed' : 'wrote'} ${plural(Object.keys(result.notes).length, 'note')} → ${displayPath(result.notesDestination)}`);
       else if (result.ok) process.stdout.write(result.output);
       else fail('nordbeam-locale: migration produced no output because collisions must be resolved first.');
       if (result.dryRun) console.error('No files changed. Remove --dry-run to write a new output file.');
@@ -877,15 +882,21 @@ async function main(): Promise<void> {
   try { await build(); } catch (error) { if (values.ndjson) { operationId = randomUUID(); await eventError('generate', error); } else fail((error as Error).message); }
   let timer: ReturnType<typeof setTimeout>;
   let queue = Promise.resolve();
-  let watcher;
-  try {
-    watcher = watch(resolve(options.root!, options.catalogs!), (_event, file) => {
-    if (file && !file.endsWith('.json')) return;
+  const schedule = () => {
     clearTimeout(timer);
     timer = setTimeout(() => { queue = queue.then(build).catch(async error => { if (values.ndjson) { operationId = randomUUID(); await eventError('generate', error); } else fail((error as Error).message); }); }, 50);
-  });
+  };
+  let watcher, notesWatcher: ReturnType<typeof watch> | undefined;
+  try {
+    watcher = watch(resolve(options.root!, options.catalogs!), (_event, file) => {
+      if (file && !file.endsWith('.json')) return;
+      schedule();
+    });
+    // The directory, because editors that save by renaming end a watch on the file.
+    const notes = notesFile(options);
+    if (notes) notesWatcher = watch(dirname(notes), (_event, file) => { if (!file || file === basename(notes)) schedule(); });
   } catch (error) { throw displayCliError(error, options); }
-  const close = () => { clearTimeout(timer); watcher.close(); };
+  const close = () => { clearTimeout(timer); watcher.close(); notesWatcher?.close(); };
   process.once('SIGINT', close);
   process.once('SIGTERM', close);
 }

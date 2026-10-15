@@ -9,6 +9,7 @@ import { invalidJson, locateDiagnostics } from './catalog-diagnostics.js';
 import type { CatalogSource } from './catalog-diagnostics.js';
 import { pseudoLocalizeCatalog } from './pseudo.js';
 import { catalogSchema, configSchema } from './schema.js';
+import { notesFile, parseNotes } from './notes.js';
 
 /** Result of a source/catalog edit.  The CLI deliberately keeps this data
  * serializable so editors and other tools can consume the same commands. */
@@ -395,7 +396,7 @@ function codeMask(text: string): Uint8Array {
 }
 
 function validate(options: GenerateOptions, catalogs: Record<string, Catalog>): { warnings: Diagnostic[] } {
-  const result = checkProject({ ...options, catalogs });
+  const result = checkProject({ ...options, catalogs, notes: undefined });
   if (!result.ok) throw new CompileError([...result.errors]);
   return { warnings: result.warnings };
 }
@@ -453,6 +454,17 @@ export async function renameMessage(options: RefactorOptions & { from: string; t
   }
   const catalogOutputs = new Map<string, string>();
   for (const [file, value] of changes) { const output = serialize(value.catalog, value.source); if (output !== value.source) catalogOutputs.set(file, output); }
+  // The message's note moves with it, unless the new ID already has one.
+  const notes = notesFile(options);
+  const notesText = notes && await readFile(notes, 'utf8').catch(() => undefined);
+  if (notes && notesText !== undefined) {
+    parseNotes(notesText, notes);
+    const catalog = JSON.parse(notesText) as Catalog, note = getLeaf(catalog, options.from, 'notes');
+    if (note && !getLeaf(catalog, options.to, 'notes')) {
+      deleteAt(catalog, note.path); setAt(catalog, note.path.length === fromParts.length && note.path.length === 1 ? toParts : note.path.length === 1 ? [options.to] : toParts, note.text);
+      catalogOutputs.set(notes, serialize(catalog, notesText));
+    }
+  }
   const changed = await writeFilesTransaction(new Map([...catalogOutputs, ...sourceChanges]));
   const status = await refreshOutput(options, changed.length > 0);
   return { changed, references: [...sourceChanges.keys()].sort(compare), ids: [{ from: options.from, to: options.to }], locales, warnings: [...checked.warnings.map(warning => ({ ...warning })), ...dynamic], ...status };
@@ -490,7 +502,7 @@ export async function pruneMessages(options: RefactorOptions & { dryRun?: boolea
 export async function doctor(options: RefactorOptions): Promise<DoctorResult> {
   let checked;
   try {
-    const input = await loadCatalogs(options), result = checkProject({ ...options, catalogs: input.catalogs });
+    const input = await loadCatalogs(options), result = checkProject({ ...options, catalogs: input.catalogs, notes: undefined });
     const errors = locateDiagnostics(result.errors, input.sources), warnings = locateDiagnostics(result.warnings, input.sources);
     const base = input.catalogs[options.baseLocale];
     const ids = base ? leaves(base, options.baseLocale).map(item => item.id) : [];
@@ -539,7 +551,7 @@ export async function pseudoCatalog(options: PseudoOptions): Promise<PseudoResul
   if (existing && !options.update) fail('PSEUDO_TARGET_EXISTS', `Refusing to overwrite ${targetFile}. Pass --update to replace an existing pseudo catalog.`, { file: targetFile });
   const pseudo = pseudoLocalizeCatalog(source, { expansion: options.expansion });
   const catalogs = { ...input.catalogs, [options.locale]: pseudo };
-  const checked = checkProject({ ...options, catalogs, missing: 'fallback' });
+  const checked = checkProject({ ...options, catalogs, missing: 'fallback', notes: undefined });
   if (!checked.ok) throw new CompileError(locateDiagnostics(checked.errors, input.sources));
   const sourceText = existing?.text ?? input.files.find(file => file.locale === fromLocale)?.text ?? '';
   const output = serialize(pseudo, sourceText);

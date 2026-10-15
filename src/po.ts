@@ -150,6 +150,8 @@ export interface SerializePoOptions {
   readonly missing?: 'fallback' | 'error';
   readonly formats?: Formats;
   readonly timeZone?: string;
+  /** Notes about messages, by message ID. Each becomes extracted comments (`#.`) on its entry. */
+  readonly notes?: Readonly<Record<string, string>>;
 }
 
 export interface SerializePoResult {
@@ -245,6 +247,14 @@ function pureCompilerOptions(options: SerializePoOptions, catalogs: Record<strin
 }
 
 /** Serialize catalogs already held in memory; no filesystem access is performed. */
+/** A message's note as extracted comments, one per line. Imports skip them, except a
+ * line that reads as the empty marker, which is quoted out of its way. */
+export function noteComments(notes: Readonly<Record<string, string>> | undefined, id: string): string[] {
+  const note = notes && Object.hasOwn(notes, id) ? notes[id]! : '';
+  return note.split(/\r\n?|\n/).map(line => line.trim()).filter(Boolean)
+    .map(line => `#. ${line === emptyMarker.slice(3) || legacyEmptyMarkers.has(`#. ${line}`) ? `"${line}"` : line}`);
+}
+
 export function serializePo(options: SerializePoOptions): SerializePoResult {
   pureLocaleName(options.baseLocale); pureLocaleName(options.locale);
   if (options.baseLocale === options.locale) poError('PO_BASE_LOCALE', 'Choose a target locale different from the base locale. Edit source messages in the base JSON catalog.');
@@ -264,7 +274,7 @@ export function serializePo(options: SerializePoOptions): SerializePoResult {
   for (const [id, source] of [...baseIndex].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     const translation = targetIndex.get(id);
     for (const text of [id, source.text, translation?.text ?? '']) assertPoText(text, { locale: options.locale, messageId: id });
-    lines.push('');
+    lines.push('', ...noteComments(options.notes, id));
     if (translation?.text === '') lines.push('#. nordbeam-locale:empty');
     lines.push(`msgctxt ${quotePo(id)}`, `msgid ${quotePo(source.text)}`, `msgstr ${quotePo(translation?.text ?? '')}`);
   }

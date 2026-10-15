@@ -14,12 +14,16 @@ import { locateCompileError, locateDiagnostics, invalidJson, duplicateKeyDiagnos
 import { thenableKeyDiagnostics } from './key-policy.js';
 import type { CatalogSource } from './catalog-diagnostics.js';
 import { CliError } from './error-codes.js';
+import { catalogIds, notesFile, readNotes, unknownNotes } from './notes.js';
 export { updateCatalogText } from './catalog-text.js';
 export type { CatalogTextChanges } from './catalog-text.js';
 
-export interface GenerateOptions extends Omit<CompilerOptions, 'catalogs'> {
+export interface GenerateOptions extends Omit<CompilerOptions, 'catalogs' | 'notes'> {
   /** Directory containing one JSON catalog per locale. Default: messages. */
   catalogs?: string;
+  /** JSON file of notes about messages, shaped like a catalog, relative to root.
+   * Notes reach editor hovers and PO exports. Outside the catalog directory. */
+  notes?: string;
   /** Generated files only; existing unrelated files are never removed. */
   outDir?: string;
   root?: string;
@@ -240,13 +244,18 @@ export async function check(options: GenerateOptions, read: (file: string) => Pr
     sources.set(locale, { file, text });
     errors.push(...duplicateKeyDiagnostics({ file, text }, locale, catalogs[locale]));
   }
-  const result = checkProject({ ...options, catalogs });
+  let notes: Awaited<ReturnType<typeof readNotes>>;
+  try { notes = await readNotes(options, read); }
+  catch (error) { if (!(error instanceof CompileError)) throw error; errors.push(...error.diagnostics); }
+  const { notes: _file, ...compilerOptions } = options;
+  const result = checkProject({ ...compilerOptions, catalogs });
   // A base file that could not be read/parsed is already explained by its load error.
   const baseFailed = errors.some(error => error.locale === options.baseLocale);
   errors.push(...locateDiagnostics(result.errors.filter(error => !baseFailed || error.code !== 'BASE_LOCALE_MISSING'), sources));
   const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
   errors.sort((a, b) => compare(a.locale ?? '', b.locale ?? '') || (a.location?.offset ?? -1) - (b.location?.offset ?? -1) || compare(a.code, b.code));
-  const warnings = [...locateDiagnostics(result.warnings, sources), ...discovered.ignored, ...thenableWarnings(catalogs, options.baseLocale)];
+  const warnings = [...locateDiagnostics(result.warnings, sources), ...discovered.ignored, ...thenableWarnings(catalogs, options.baseLocale),
+    ...(catalogs[options.baseLocale] ? unknownNotes(notes, catalogIds(catalogs[options.baseLocale]!), notesFile(options)) : [])];
   return { ...result, ok: errors.length === 0, errors, warnings, locales, catalogFiles };
 }
 
@@ -357,10 +366,11 @@ async function generateProject(options: GenerateOptions, read: (file: string) =>
     catch (error) { throw new CompileError([{ code: 'CATALOG_READ_ERROR', message: (error as Error).message, locale, file }]); }
     sources.push({ file, locale, text });
   }
+  const notes = await readNotes(options, read);
   // The digest covers what decides the output. The cache setting does not, so
   // enabling or disabling the artifact cache keeps the same manifest.
   const { persistentCache, ...compilerOptions } = options;
-  const inputs = await inputDigest(compilerOptions, sources.map(({ file, text }) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n',
+  const inputs = await inputDigest({ ...compilerOptions, ...(notes ? { notes } : {}) }, sources.map(({ file, text }) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n',
     ignored.map(item => (item.file ?? '').slice(input.length + 1)));
   // Only stateless generation trusts the manifest. A watch session restores
   // its memory of the previous output instead.
@@ -391,14 +401,16 @@ async function generateProject(options: GenerateOptions, read: (file: string) =>
   let project: CompiledProject;
   if (stored) project = stored;
   else {
-    try { project = compile({ ...options, catalogs }); }
+    const { notes: _file, ...rest } = options;
+    try { project = compile({ ...rest, catalogs, ...(notes ? { notes } : {}) }); }
     catch (error) { if (error instanceof CompileError) throw locateCompileError(error, catalogSources); throw error; }
   }
   catalogSources.clear();
   if (source && !stored && options.artifacts !== 'runtime' && options.artifacts !== 'loader') attachDeclarationMaps(project, source, outDir, declarationMaps);
   project = markProject(project, !!options.development, root, input);
   // Source-level warnings are added after caching so a restored project never repeats them.
-  const warnings = [...project.warnings, ...ignored, ...thenableWarnings(catalogs, options.baseLocale)];
+  const warnings = [...project.warnings, ...ignored, ...thenableWarnings(catalogs, options.baseLocale),
+    ...unknownNotes(notes, new Set(project.groups['index.js']), notesFile(options))];
   const record = inputs && { inputs, project: { locales: project.locales, groups: project.groups, warnings } };
   const changed = await writeOutput(project, outDir, output, record || undefined);
   if (!stored && cacheFile && key) {

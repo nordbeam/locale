@@ -442,7 +442,7 @@ export async function migrateProject(options: ProjectMigrationOptions): Promise<
   }
   const baseLocale = options.baseLocale ?? options.locale ?? 'en';
   if (!Object.hasOwn(catalogs, baseLocale)) throw new Error(`Migration input has no base locale ${JSON.stringify(baseLocale)}.`);
-  compileProject({ ...options, baseLocale, catalogs });
+  compileProject({ ...options, baseLocale, catalogs, notes: undefined });
   await filesAbsent(previews.map(item => item.destination));
   const messageIds: string[] = [], idBySource = new Map<string, string>(), ambiguousSources = new Set<string>();
   const collectIds = (value: unknown, path: string[]): void => {

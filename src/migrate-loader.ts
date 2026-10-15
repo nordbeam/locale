@@ -89,6 +89,7 @@ export interface MigrateCatalogOptions {
   readonly from: string;
   readonly format: MigrationFormat;
   readonly out?: string;
+  readonly notes?: string;
   readonly dryRun?: boolean;
   readonly locale?: string;
 }
@@ -98,8 +99,10 @@ export interface MigrateCatalogResult {
   readonly format: MigrationFormat;
   readonly source: string;
   readonly destination?: string;
+  readonly notesDestination?: string;
   readonly dryRun: boolean;
   readonly output: string;
+  readonly notes: Readonly<Record<string, string>>;
   readonly messageCount: number;
   readonly changed: string[];
   readonly warnings: Diagnostic[];

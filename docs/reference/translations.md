@@ -14,6 +14,10 @@ import { exportPo, importPo } from '@nordbeam/locale/translations';
   serialization and merge helpers, also available from
   `@nordbeam/locale/po`; they do not read or write files.
 
+With a configured [notes file](../GUIDE.md#notes-about-messages), `exportPo`
+writes each message's note as `#.` comments above its entry, and `serializePo`
+does the same with its `notes` option. Imports skip them.
+
 Use `--dry-run` in the CLI or equivalent options before committing a catalog.
 `exportPo` and `importPo` are the file-backed project workflow; use the pure
 helpers when a worker or service owns storage separately.

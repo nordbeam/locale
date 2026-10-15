@@ -29,7 +29,9 @@ import { compileProject, checkProject } from '@nordbeam/locale/compiler';
 Generated `messages.d.ts` declarations carry each message's base-locale source
 as a one-line JSDoc comment, so editors show the text on hover. The text is
 collapsed to one line, truncated at 200 characters, and `*/` and word-initial
-`@` are escaped so they cannot end the comment or start a tag.
+`@` are escaped so they cannot end the comment or start a tag. With the
+`notes` option (message ID to text), a message's note follows as `@remarks`,
+on the same line and with the same limits.
 
 Catalogs with more than 256 messages split their declarations across
 `types/N.d.ts` modules. `messages.d.ts` then combines them with one interface

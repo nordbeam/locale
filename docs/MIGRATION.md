@@ -42,6 +42,8 @@ npx nordbeam-locale migrate --from strings.xml --format android-xml \
   --out messages/en.json
 npx nordbeam-locale migrate --from Localizable.xcstrings \
   --format apple-xcstrings --locale en --out messages/en.json
+npx nordbeam-locale migrate --from src/i18n/en.ts --format module \
+  --out messages/en.json --notes messages.notes.json
 ```
 
 `i18next` converts simple `{{name}}` interpolation to ICU `{name}` and combines
@@ -69,12 +71,28 @@ more than three pipe forms (custom pluralization rules) and the legacy
 `%{name}` syntax are skipped with `VUE_I18N_UNSUPPORTED_SYNTAX`, never copied
 as text. `next-intl`
 messages are already ICU and are copied, while FormatJS descriptors use their
-`defaultMessage` (or the non-standard `message` field) and report dropped
-metadata such as descriptions. Nested input is emitted as a canonical nested
+`defaultMessage` (or the non-standard `message` field), and their descriptions
+become notes. Nested input is emitted as a canonical nested
 Nordbeam catalog, so dotted IDs keep their identity.
 
+`module` reads a dictionary kept in TypeScript or JavaScript (`.ts`, `.mts`,
+`.cts`, `.js`, `.mjs`, `.cjs`), as typesafe-i18n,
+next-international and hand-written apps keep them. It parses the file and runs
+nothing: the dictionary is the default export (`as const` and `satisfies` are
+fine), a name the default export refers to, `module.exports`, or the module's only
+exported object. Values must be string literals, template literals without
+substitutions, `+` joins of those, or nested objects; anything computed or
+spread is skipped with `MIGRATION_UNSUPPORTED_VALUE`. Strings must already be ICU.
+A comment directly above a message, or after it on its line, is that message's
+note.
+
+`--notes <file>` writes the notes found in the source (module comments, FormatJS
+and ARB descriptions) to a new [notes file](GUIDE.md#notes-about-messages);
+without it they are reported as `MIGRATION_METADATA_DROPPED`. Like `--out`, it
+never replaces an existing file.
+
 Additional formats are `lingui`, `tolgee`, `arb`, `yaml`, `android-xml`,
-`apple-strings`, `apple-xcstrings`, `po`, `pot`, `mo`, and `json-gettext`.
+`apple-strings`, `apple-xcstrings`, `po`, `pot`, `mo`, `json-gettext`, and `module`.
 Android and Apple printf placeholders become named ICU arguments with a review
 warning. Multi-locale Tolgee and Apple exports require `--locale` when the
 source locale cannot be inferred safely.

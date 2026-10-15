@@ -12,8 +12,12 @@ export interface MigrationResult {
   format: MigrationFormat;
   source: string;
   destination?: string;
+  /** Where the notes were written, with `notes`. */
+  notesDestination?: string;
   dryRun: boolean;
   output: string;
+  /** Notes about the migrated messages, from source comments and descriptions, by message ID. */
+  notes: Record<string, string>;
   messageCount: number;
   changed: string[];
   warnings: Diagnostic[];
@@ -51,6 +55,8 @@ export async function migrateCatalog(options: {
   from: string;
   format: MigrationFormat;
   out?: string;
+  /** Write the notes found in the source (comments, FormatJS and ARB descriptions) to this JSON file. */
+  notes?: string;
   dryRun?: boolean;
   locale?: string;
 }): Promise<MigrationResult> {
@@ -59,13 +65,15 @@ export async function migrateCatalog(options: {
   catch (error) { fail('MIGRATION_READ_ERROR', (error as Error).message, { file: resolve(options.from) }); }
   const parsed = decoded.value, traversal = decoded.traversal;
   const warnings: Diagnostic[] = [...decoded.warnings], collisions: Array<{ code: string; message: string; path?: string }> = [];
+  const foundNotes: Record<string, string> = Object.assign(Object.create(null), decoded.notes);
   const leavesFound: MigrationLeaf[] = [];
   const seenIds = new Map<string, MigrationLeaf>();
   const descriptor = (value: MigrationInput, id: string): string | undefined => {
     const source = typeof value.defaultMessage === 'string' ? value.defaultMessage : typeof value.message === 'string' ? value.message : undefined;
     if (source === undefined) return;
-    const metadata = Object.keys(value).filter(key => !['defaultMessage', 'message'].includes(key));
-    if (metadata.length) warnings.push(migrationWarning('MIGRATION_METADATA_DROPPED', `Dropped FormatJS metadata for ${JSON.stringify(id)} (${metadata.join(', ')}).`, 'Nordbeam catalogs store message text; keep descriptions in your CMS or a sidecar file.'));
+    if (typeof value.description === 'string' && value.description.trim()) foundNotes[id] = value.description;
+    const metadata = Object.keys(value).filter(key => !['defaultMessage', 'message', 'description'].includes(key));
+    if (metadata.length) warnings.push(migrationWarning('MIGRATION_METADATA_DROPPED', `Dropped FormatJS metadata for ${JSON.stringify(id)} (${metadata.join(', ')}).`, 'Nordbeam catalogs store message text; descriptions become notes with --notes.'));
     if (value.message !== undefined && value.defaultMessage === undefined) warnings.push(migrationWarning('MIGRATION_MESSAGE_FIELD', `Used the non-standard message field for ${JSON.stringify(id)}.`));
     return source;
   };
@@ -234,14 +242,28 @@ export async function migrateCatalog(options: {
     ...(diagnostic.messageId ? { path: diagnostic.messageId } : {}),
   });
   const output = JSON.stringify(outputRoot, null, 2) + '\n';
-  let changed: string[] = [];
+  // Notes of messages that plural merging consumed have no message left to describe.
+  const outputIds = new Set(outputLeaves.map(leaf => leaf.id));
+  const notes: Record<string, string> = Object.create(null);
+  for (const id of Object.keys(foundNotes).sort(compare)) if (outputIds.has(id)) notes[id] = foundNotes[id]!;
+  const noteCount = Object.keys(notes).length;
+  if (noteCount && !options.notes) warnings.push(migrationWarning('MIGRATION_METADATA_DROPPED', `Dropped ${noteCount} note${noteCount === 1 ? '' : 's'} from source comments and descriptions.`, 'Pass --notes <file> to keep them in a notes file, and set "notes" in the config.'));
+  const changed: string[] = [];
   const destination = options.out ? resolve(options.out) : undefined;
-  if (destination && collisions.length === 0) {
-    let exists = false;
-    try { await lstat(destination); exists = true; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    if (exists) collisions.push({ code: 'MIGRATION_OUTPUT_EXISTS', path: destination, message: `Refusing to overwrite existing migration output ${destination}.` });
-    else if (!options.dryRun) { await atomicWrite(destination, output); changed = [destination]; }
+  const notesDestination = options.notes && noteCount ? resolve(options.notes) : undefined;
+  const absent = async (file: string): Promise<boolean> => {
+    try { await lstat(file); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true; throw error; }
+    collisions.push({ code: 'MIGRATION_OUTPUT_EXISTS', path: file, message: `Refusing to overwrite existing migration output ${file}.` });
+    return false;
+  };
+  if (collisions.length === 0 && (destination || notesDestination)) {
+    const writable = [destination && await absent(destination), notesDestination && await absent(notesDestination)];
+    if (!writable.includes(false) && !options.dryRun) {
+      if (destination) { await atomicWrite(destination, output); changed.push(destination); }
+      if (notesDestination) { await atomicWrite(notesDestination, JSON.stringify(notes, null, 2) + '\n'); changed.push(notesDestination); }
+    }
   }
-  return { ok: collisions.length === 0, format: options.format, source: resolve(options.from), ...(destination ? { destination } : {}), dryRun: options.dryRun === true, output, messageCount: outputLeaves.length, changed, warnings, collisions };
+  return { ok: collisions.length === 0, format: options.format, source: resolve(options.from), ...(destination ? { destination } : {}),
+    ...(notesDestination ? { notesDestination } : {}), dryRun: options.dryRun === true, output, notes, messageCount: outputLeaves.length, changed, warnings, collisions };
 }

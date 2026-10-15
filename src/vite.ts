@@ -10,6 +10,7 @@ import { DevSelections } from './dev-selections.js';
 import { generate as generateOnce, createGenerator } from './project.js';
 import type { GenerateOptions, GenerateResult } from './project.js';
 import { discoverConfig, readConfig } from './config.js';
+import { notesFile } from './notes.js';
 import { CompileError, diagnosticSummary } from './diagnostics.js';
 import { catalogAssets, preloadManifest } from './preload-manifest.js';
 import type { SelectionFallbackMode } from './selection.js';
@@ -103,6 +104,7 @@ const catalogAssetsKey = 'Symbol.for("nordbeam-locale.catalog-assets")';
 export function nordbeamLocale(options?: ViteOptions): Plugin {
   let root: string;
   let input: string;
+  let notes: string | undefined;
   let configFile: string | undefined;
   let development = false;
   let watch = false;
@@ -344,6 +346,7 @@ export function nordbeamLocale(options?: ViteOptions): Plugin {
       // them for `vite serve` (the latter is the common missing-argument trap).
       const configured: GenerateOptions = { ...catalogOptions, root, baseLocale: loaded.baseLocale ?? 'en', development };
       input = resolve(root, configured.catalogs ?? 'messages');
+      notes = notesFile(configured);
       generate = development || config.build.watch ? createGenerator(configured) : read => generateOnce(configured, read);
       await run();
       if (staticLocale !== undefined && !project.locales.includes(staticLocale)) throw new Error(`Nordbeam Locale: staticLocale ${JSON.stringify(staticLocale)} is not a configured locale`);
@@ -372,6 +375,7 @@ export function nordbeamLocale(options?: ViteOptions): Plugin {
         this.addWatchFile(marker);
       }
       if (!catalogWatch) this.addWatchFile(input);
+      if (notes) this.addWatchFile(notes);
       // Register the last successful inputs before compilation so a failed
       // catalog edit can still trigger its repair build.
       if (!catalogWatch) for (const file of project.catalogFiles) this.addWatchFile(file);
@@ -397,7 +401,8 @@ export function nordbeamLocale(options?: ViteOptions): Plugin {
     async hotUpdate(ctx) {
       if (closing) return [];
       if (ctx.type === 'delete') devSelections?.removeFile(this.environment, ctx.file);
-      if (dirname(ctx.file) !== input || !ctx.file.endsWith('.json')) { devSelections?.schedule(); return; }
+      // Notes change declarations only, so no module needs an update.
+      if (ctx.file !== notes && (dirname(ctx.file) !== input || !ctx.file.endsWith('.json'))) { devSelections?.schedule(); return; }
       const key = `${ctx.file}:${ctx.timestamp}:${ctx.type}`;
       let job = updates.get(key);
       if (!job) {

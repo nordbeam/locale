@@ -14,6 +14,9 @@ import {
 - `validateConfig(value, file?)` — assert and report valid config shape.
 - `discoverConfig(root)` — locate the current config.
 - `readConfig(file, required?)` — read and validate config values.
+- `notes` — a JSON file of [notes about messages](../GUIDE.md#notes-about-messages),
+  shaped like a catalog, relative to the config and outside the catalog
+  directory.
 - `lockedKeys` and `ignoredKeys` — exact IDs or dotted `prefix.*` patterns for
   source-verbatim and excluded messages; overlap is rejected during validation.
 - `resolveKeyPolicy(id, options)` — return the validated lock/ignore decision

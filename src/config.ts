@@ -14,7 +14,7 @@ export const historicalConfigName = 'fasti18n.config.json';
 
 /** Option keys that `init` persists to the config file. */
 export const configKeys = [
-  'baseLocale', 'catalogs', 'outDir', 'missing',
+  'baseLocale', 'catalogs', 'notes', 'outDir', 'missing',
   'formats', 'timeZone', 'scopes', 'artifacts', 'includeSources', 'shareLiterals', 'cache', 'persistentCache',
   'selectionFallback', 'shareMessages', 'preloadManifest', 'staticLocale', 'lockedKeys', 'ignoredKeys',
 ] as const;
@@ -31,7 +31,7 @@ export function validateConfig(value: unknown, file = configName): asserts value
   for (const key of Object.keys(value)) if (!acceptedConfigKeys.has(key)) {
     throw new Error(`${file}: unknown option ${JSON.stringify(key)}. Check the spelling or remove it.`);
   }
-  const stringKeys = ['baseLocale', 'catalogs', 'outDir', 'timeZone'] as const;
+  const stringKeys = ['baseLocale', 'catalogs', 'notes', 'outDir', 'timeZone'] as const;
   for (const key of stringKeys) if (value[key] !== undefined && (typeof value[key] !== 'string' || !value[key])) {
     throw new Error(`${file}: ${key} must be a nonempty string.`);
   }

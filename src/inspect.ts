@@ -5,6 +5,7 @@ import type { Diagnostic } from './compiler.js';
 import { describeMessageContract } from './contracts.js';
 import type { ContractArgumentKind } from './contracts.js';
 import { inputDigest } from './persistent-cache.js';
+import { readNotes } from './notes.js';
 import type { InputDigest } from './persistent-cache.js';
 import { check, discoverCatalogs, readOutputManifest } from './project.js';
 import type { GenerateOptions } from './project.js';
@@ -339,8 +340,9 @@ export async function inspectProject(options: GenerateOptions, configFile: strin
   // The same options and catalog bytes that generate() hashes, so a match means
   // the recorded output is what these inputs would produce.
   const { persistentCache, ...compilerOptions } = options;
+  const notes = await readNotes(options).catch(() => undefined);
   const ignored = checked.warnings.filter(warning => warning.code === 'IGNORED_CATALOG_FILE').map(warning => (warning.file ?? '').slice(input.length + 1));
-  const current = await inputDigest(compilerOptions, [...texts].map(([file, text]) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n', ignored);
+  const current = await inputDigest({ ...compilerOptions, ...(notes ? { notes } : {}) }, [...texts].map(([file, text]) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n', ignored);
   const freshness = await outputFreshness(generated, generatedResult.record, current);
   const config = {
     file: resolve(configFile),

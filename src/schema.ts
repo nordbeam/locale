@@ -37,6 +37,7 @@ export const configSchema: JsonSchema = {
     $schema: { type: 'string', description: 'Optional JSON Schema URL used by your editor.' },
     baseLocale: { type: 'string', minLength: 1, description: 'Canonical BCP 47 locale used as the source contract.' },
     catalogs: { type: 'string', minLength: 1, description: 'Directory containing one JSON catalog per locale.' },
+    notes: { type: 'string', minLength: 1, description: 'JSON file of notes about messages, shaped like a catalog, outside the catalog directory. Notes reach editor hovers and PO exports.' },
     outDir: { type: 'string', minLength: 1, description: 'Directory for generated modules and declarations.' },
     missing: { enum: ['fallback', 'error'], description: 'Whether missing translations fall back or fail generation.' },
     development: { type: 'boolean', description: 'Include helpful runtime argument checks in generated functions.' },

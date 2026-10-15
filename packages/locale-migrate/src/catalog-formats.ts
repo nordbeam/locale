@@ -1,5 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
+import { parse as parseModule } from '@babel/parser';
+import type { Comment, Expression, Node, ObjectExpression, Statement } from '@babel/types';
 import { XMLParser } from 'fast-xml-parser';
 import gettext from 'gettext-parser';
 import { parse as parseYaml } from 'yaml';
@@ -7,12 +9,14 @@ import type { Diagnostic } from '@nordbeam/locale/internal/migrate';
 
 export type MigrationFormat = 'i18next' | 'vue-i18n' | 'next-intl' | 'formatjs' | 'lingui' | 'tolgee'
   | 'arb' | 'yaml' | 'android-xml' | 'apple-strings' | 'apple-xcstrings'
-  | 'po' | 'pot' | 'mo' | 'json-gettext';
+  | 'po' | 'pot' | 'mo' | 'json-gettext' | 'module';
 
 export interface DecodedCatalog {
   value: Record<string, unknown>;
   traversal: 'i18next' | 'vue-i18n' | 'next-intl' | 'formatjs';
   warnings: Diagnostic[];
+  /** Translator notes by message ID, from source comments or descriptions. */
+  notes?: Record<string, string>;
 }
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -71,12 +75,16 @@ function androidXml(text: string, warnings: Diagnostic[]): Record<string, unknow
   return output;
 }
 
-function arb(value: unknown, warnings: Diagnostic[]): Record<string, unknown> {
+function arb(value: unknown, warnings: Diagnostic[], notes: Record<string, string>): Record<string, unknown> {
   if (!object(value)) throw new TypeError('ARB input must be a JSON object.');
   const output: Record<string, unknown> = Object.create(null);
   for (const [key, item] of Object.entries(value)) {
     if (key.startsWith('@')) {
-      if (key.startsWith('@') && !key.startsWith('@@')) warnings.push(warning('MIGRATION_METADATA_DROPPED', `Dropped ARB metadata ${JSON.stringify(key)}.`));
+      if (key.startsWith('@@')) continue;
+      // The description is a note; placeholder types and examples have no catalog equivalent.
+      const metadata = object(item) ? item : {};
+      if (typeof metadata.description === 'string' && metadata.description.trim()) notes[key.slice(1)] = metadata.description;
+      if (Object.keys(metadata).some(name => name !== 'description')) warnings.push(warning('MIGRATION_METADATA_DROPPED', `Dropped ARB metadata ${JSON.stringify(key)}.`));
       continue;
     }
     output[key] = item;
@@ -412,6 +420,113 @@ function jsonGettext(value: unknown, locale: string | undefined, warnings: Diagn
   return output;
 }
 
+/** The object a dictionary module exports, without running it: TypeScript wrappers
+ * (`as const`, `satisfies`, `<T>`) are looked through, and an exported name is followed
+ * to its top-level `const`. */
+function exportedObject(program: Statement[]): ObjectExpression {
+  const unwrap = (node: Node | null | undefined): Node | null | undefined => {
+    while (node && (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'TSTypeAssertion'
+      || node.type === 'TSNonNullExpression' || node.type === 'ParenthesizedExpression')) node = node.expression;
+    return node;
+  };
+  const declared = (name: string): Node | null | undefined => {
+    for (const statement of program) {
+      const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+      if (declaration?.type !== 'VariableDeclaration') continue;
+      for (const item of declaration.declarations) if (item.id.type === 'Identifier' && item.id.name === name) return unwrap(item.init);
+    }
+  };
+  const object = (node: Node | null | undefined): ObjectExpression | undefined => {
+    const value = unwrap(node);
+    if (value?.type === 'ObjectExpression') return value;
+    if (value?.type === 'Identifier') { const target = declared(value.name); if (target?.type === 'ObjectExpression') return target; }
+  };
+  const candidates: (ObjectExpression | undefined)[] = [];
+  for (const statement of program) {
+    if (statement.type === 'ExportDefaultDeclaration') return object(statement.declaration as Node) ?? fail();
+    if (statement.type === 'ExpressionStatement' && statement.expression.type === 'AssignmentExpression'
+      && statement.expression.left.type === 'MemberExpression' && statement.expression.left.object.type === 'Identifier'
+      && statement.expression.left.object.name === 'module' && statement.expression.left.property.type === 'Identifier'
+      && statement.expression.left.property.name === 'exports') return object(statement.expression.right) ?? fail();
+    if (statement.type === 'ExportNamedDeclaration' && statement.declaration?.type === 'VariableDeclaration') {
+      for (const item of statement.declaration.declarations) candidates.push(object(item.init));
+    }
+  }
+  const found = candidates.filter(Boolean);
+  if (found.length === 1) return found[0]!;
+  return fail();
+  function fail(): never {
+    throw new TypeError('A dictionary module must export one object literal of strings, as its default export or its only exported const.');
+  }
+}
+
+/** Comments directly above a property, or after it on its line, become its note. */
+function commentNote(comments: readonly Comment[]): string | undefined {
+  const text = comments.map(comment => comment.type === 'CommentLine' ? comment.value.trim()
+    : comment.value.split('\n').map(line => line.replace(/^\s*\*?\s?/, '').trimEnd()).join('\n').trim()).filter(Boolean).join('\n');
+  return text || undefined;
+}
+
+/** A JavaScript or TypeScript dictionary module, read statically: nothing in it runs.
+ * Values must be string literals, template literals without substitutions, `+`
+ * concatenations of those, or nested object literals. */
+function dictionaryModule(text: string, file: string, warnings: Diagnostic[]): { value: Record<string, unknown>; notes: Record<string, string> } {
+  const extension = extname(file).toLowerCase();
+  const typescript = ['.ts', '.mts', '.cts', '.tsx'].includes(extension);
+  let program: Statement[];
+  try {
+    program = parseModule(text, { sourceType: 'unambiguous', plugins: typescript ? ['typescript', ...(extension === '.tsx' ? ['jsx' as const] : [])] : ['jsx'] }).program.body;
+  } catch (error) { throw new SyntaxError(`Invalid module ${file}: ${(error as Error).message}`); }
+  const notes: Record<string, string> = Object.create(null);
+  const literal = (node: Expression): string | undefined => {
+    if (node.type === 'StringLiteral') return node.value;
+    if (node.type === 'TemplateLiteral' && node.expressions.length === 0) return node.quasis.map(quasi => quasi.value.cooked ?? quasi.value.raw).join('');
+    if (node.type === 'BinaryExpression' && node.operator === '+' && node.left.type !== 'PrivateName') {
+      const left = literal(node.left), right = literal(node.right);
+      return left === undefined || right === undefined ? undefined : left + right;
+    }
+    if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'ParenthesizedExpression') return literal(node.expression);
+  };
+  const convert = (object: ObjectExpression, path: string[]): Record<string, unknown> => {
+    const output: Record<string, unknown> = Object.create(null);
+    // Babel can give one comment to two neighbours, and gives `a: 'x', // note` to the
+    // property after it. A comment belongs to the property that ends on its line, or
+    // else to the property below it.
+    const owned = object.properties.map(() => new Set<Comment>());
+    object.properties.forEach((property, index) => {
+      for (const comment of [...property.leadingComments ?? [], ...property.trailingComments ?? []]) {
+        const line = comment.loc?.start.line;
+        const owner = object.properties.findIndex(item => item.loc?.end.line === line && (item.loc?.end.index ?? 0) <= (comment.loc?.start.index ?? 0));
+        if (owner >= 0) owned[owner]!.add(comment);
+        else if (comment.loc && property.loc && comment.loc.end.index <= property.loc.start.index) owned[index]!.add(comment);
+      }
+    });
+    object.properties.forEach((property, index) => {
+      const key = property.type === 'ObjectProperty' && !property.computed
+        ? property.key.type === 'Identifier' ? property.key.name : property.key.type === 'StringLiteral' || property.key.type === 'NumericLiteral' ? String(property.key.value) : undefined
+        : undefined;
+      if (property.type !== 'ObjectProperty' || key === undefined) {
+        warnings.push(warning('MIGRATION_UNSUPPORTED_VALUE', `Skipped ${property.type === 'SpreadElement' ? 'a spread' : 'a computed or method property'} in ${JSON.stringify(path.join('.') || 'the dictionary')}.`, 'Write the messages out as literal properties.'));
+        return;
+      }
+      const id = [...path, key].join('.');
+      const note = commentNote([...owned[index]!].sort((a, b) => (a.start ?? 0) - (b.start ?? 0)));
+      const value = property.value as Expression;
+      const inner = value.type === 'TSAsExpression' || value.type === 'TSSatisfiesExpression' ? value.expression : value;
+      if (inner.type === 'ObjectExpression') { output[key] = convert(inner, [...path, key]); if (note) notes[id] = note; return; }
+      const string = literal(value);
+      if (string === undefined) {
+        warnings.push(warning('MIGRATION_UNSUPPORTED_VALUE', `Skipped ${JSON.stringify(id)}: its value is computed, not a string literal.`, 'Write the message as a string literal, or add it to the catalog by hand.'));
+        return;
+      }
+      output[key] = string;
+      if (note) notes[id] = note;
+    });
+    return output;
+  };
+  return { value: convert(exportedObject(program), []), notes };
+}
+
 /** i18next-style `<locale>/<namespace>.json` folders: each file becomes a top-level key, so `common.json` > `hi` migrates to `common.hi`.
  * A folder holding only the default `translation` namespace stays unprefixed, as i18next calls without a namespace expect. */
 async function namespaceFolder(directory: string, format: MigrationFormat): Promise<DecodedCatalog> {
@@ -434,6 +549,10 @@ export async function decodeMigrationCatalog(file: string, format: MigrationForm
   const absolute = resolve(file), warnings: Diagnostic[] = [];
   if ((await stat(absolute)).isDirectory()) return namespaceFolder(absolute, format);
   const buffer = await readFile(absolute);
+  if (format === 'module') {
+    const { value, notes } = dictionaryModule(buffer.toString('utf8'), absolute, warnings);
+    return { value, traversal: 'next-intl', warnings, notes };
+  }
   if (format === 'yaml') {
     const value = parseYaml(buffer.toString('utf8')) as unknown;
     if (!object(value)) throw new TypeError('YAML catalog must contain a mapping.');
@@ -443,7 +562,7 @@ export async function decodeMigrationCatalog(file: string, format: MigrationForm
   if (format === 'apple-strings') return { value: appleStrings(buffer.toString('utf8'), warnings), traversal: 'next-intl', warnings };
   if (format === 'po' || format === 'pot' || format === 'mo') return { value: gettextCatalog(buffer, format, locale, warnings), traversal: 'next-intl', warnings };
   const value = json(buffer, absolute);
-  if (format === 'arb') return { value: arb(value, warnings), traversal: 'next-intl', warnings };
+  if (format === 'arb') { const notes: Record<string, string> = Object.create(null); return { value: arb(value, warnings, notes), traversal: 'next-intl', warnings, notes }; }
   if (format === 'lingui') return { value: lingui(value, warnings), traversal: 'next-intl', warnings };
   if (format === 'tolgee') return { value: tolgee(value, locale, warnings), traversal: 'next-intl', warnings };
   if (format === 'apple-xcstrings') return { value: xcstrings(value, locale, warnings), traversal: 'next-intl', warnings };
@@ -457,5 +576,6 @@ export function inferMigrationFormat(file: string): MigrationFormat | undefined 
   return extension === '.arb' ? 'arb' : extension === '.yaml' || extension === '.yml' ? 'yaml'
     : extension === '.xml' ? 'android-xml' : extension === '.strings' ? 'apple-strings'
     : extension === '.xcstrings' ? 'apple-xcstrings' : extension === '.po' ? 'po'
-    : extension === '.pot' ? 'pot' : extension === '.mo' ? 'mo' : undefined;
+    : extension === '.pot' ? 'pot' : extension === '.mo' ? 'mo'
+    : ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'].includes(extension) ? 'module' : undefined;
 }

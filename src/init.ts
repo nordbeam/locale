@@ -492,7 +492,7 @@ export async function initialize(options: GenerateOptions, configFile: string, c
   if (seeded) {catalogs[options.baseLocale] = starter;baseText=JSON.stringify(starter,null,2)+'\n';}
   // Compilation and output ownership checks happen before creating source/config.
   let compiled: CompiledProject;
-  try { compiled = compileProject({...options, catalogs}); }
+  try { compiled = compileProject({...options, catalogs, notes: undefined}); }
   catch (error) { if (error instanceof CompileError) throw locateCompileError(error, sources); throw error; }
   sources.clear();
   attachDeclarationMaps(compiled,{file:baseFile,text:baseText},outDir);
@@ -535,7 +535,7 @@ export async function initialize(options: GenerateOptions, configFile: string, c
 export async function planInitialize(options: GenerateOptions, catalogs: Record<string, Catalog>, baseText: string, configFile: string, configExists: boolean, framework?: InitFramework): Promise<InitPlan> {
   const root = options.root ?? process.cwd();
   const outDir = resolve(root, options.outDir ?? 'src/i18n');
-  let compiled = compileProject({...options, catalogs});
+  let compiled = compileProject({...options, catalogs, notes: undefined});
   attachDeclarationMaps(compiled, {file: resolve(root, options.catalogs ?? 'messages', `${options.baseLocale}.json`), text: baseText}, outDir);
   compiled = markProject(compiled, !!options.development, resolve(root), resolve(root, options.catalogs ?? 'messages'));
   const generated: string[] = [];

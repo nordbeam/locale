@@ -19,6 +19,7 @@ the framework path you need.
 - [Next.js](#nextjs)
 - [TanStack Start](#tanstack-start)
 - [Translation workflow](#translation-workflow)
+- [Notes about messages](#notes-about-messages)
 - [Refactoring and project diagnostics](#refactoring-and-project-diagnostics)
 - [Migration and codemods](#migration-and-codemods)
 - [Persistent cache](#persistent-cache)
@@ -511,6 +512,26 @@ npx nordbeam-locale check --strict
 Dry runs write nothing. The import validates IDs, ICU, and argument contracts
 before committing a catalog update. The command reference is in
 [translations](reference/translations.md).
+
+## Notes about messages
+
+Catalogs hold message text only. Context for a message, such as where it appears,
+what an argument holds, or that legal reviews every change, goes in a notes file
+shaped like a catalog:
+
+```json
+{
+  "checkout": {
+    "pay": "Button under the order summary. {amount} is formatted by the caller."
+  }
+}
+```
+
+Name it in the config with `"notes": "messages.notes.json"`, outside the catalog
+directory. A note shows beside its message in editor hovers (`@remarks`) and
+becomes `#.` comments in PO exports. `rename` moves a message's note with it, and
+`check` warns with `UNKNOWN_NOTE` when a note names a message that is gone.
+`migrate --notes` writes one from source comments and FormatJS or ARB descriptions.
 
 ## Refactoring and project diagnostics
 

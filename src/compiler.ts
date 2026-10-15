@@ -54,6 +54,9 @@ export interface CompilerOptions {
   includeSources?: 'rich' | 'all' | readonly string[];
   /** Opt into a shared plain-literal module for cold loader artifacts. */
   shareLiterals?: boolean;
+  /** Notes about messages, by message ID. Typed output shows each beside its
+   * message in editor hovers; IDs that are not in the base catalog are ignored. */
+  notes?: Readonly<Record<string, string>>;
 }
 export interface CompilerCacheOptions {
   /** Estimated retained message-body budget; excludes catalogs and final output. Default: 64 MiB. Use 0 to disable body caching. */
@@ -1349,8 +1352,8 @@ function renderCatalog(messages: Message[], schema: Schema, options: CompilerOpt
 interface TypeSignature { text: string; rich: boolean }
 
 const docLimit = 200;
-/** Hover text: the base-locale source, kept on the declaration's own line so declaration-map lines do not move. */
-function declarationDoc(source: string, locale: string): string {
+/** One line of hover text, at most docLimit code points. */
+function docText(source: string): string {
   // This runs once per message on every typed compile, so skip work most text does not need.
   let text = /\s\s|[^\S ]/.test(source) ? source.replace(/\s+/g, ' ').trim() : source.trim();
   if (text.length > docLimit) {
@@ -1360,7 +1363,11 @@ function declarationDoc(source: string, locale: string): string {
   // A word-initial `@` would start a JSDoc tag; a fullwidth one displays the same.
   if (text.includes('@')) text = text.replace(/(^|[\s{])@/g, '$1＠');
   if (text.includes('*/')) text = text.replaceAll('*/', '*\\/');
-  return `/** ${text} — ${locale} */ `;
+  return text;
+}
+/** Hover text: the base-locale source and its note, kept on the declaration's own line so declaration-map lines do not move. */
+function declarationDoc(source: string, locale: string, note?: string): string {
+  return note === undefined ? `/** ${docText(source)} — ${locale} */ ` : `/** ${docText(source)} — ${locale} @remarks ${docText(note)} */ `;
 }
 
 function renderTypes(ids: readonly string[], schema: Schema, namedOnly = false, signatures = new WeakMap<Map<string, Argument>, TypeSignature>(), split = false, docs: readonly string[] = []): string {
@@ -2054,7 +2061,8 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
     // declaration groups depend only on their own contract identities. Reuse
     // unaffected group strings (and the aggregate layout) across that change.
     if (typed) {
-      const docs = ids.map(id => declarationDoc(base.get(id)!.source, options.baseLocale));
+      const notes = options.notes;
+      const docs = ids.map(id => declarationDoc(base.get(id)!.source, options.baseLocale, notes && Object.hasOwn(notes, id) ? notes[id] : undefined));
       const typeOutput = oldType?.schema === schema && ids === oldType.ids && sameItems(docs, oldType.docs)
         ? oldType
         : renderTypeFiles(ids, schema, docs, oldType);

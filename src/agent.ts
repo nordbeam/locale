@@ -3,7 +3,7 @@ export const agentProtocolVersion = 1 as const;
 export const catalogMigrationFormats = [
   'i18next', 'vue-i18n', 'next-intl', 'formatjs', 'lingui', 'tolgee', 'arb', 'yaml',
   'android-xml', 'apple-strings', 'apple-xcstrings', 'po', 'pot', 'mo',
-  'json-gettext',
+  'json-gettext', 'module',
 ] as const;
 
 export const sourceCodemodFormats = [

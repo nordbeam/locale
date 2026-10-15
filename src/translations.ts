@@ -6,7 +6,8 @@ import type { Catalog, Diagnostic } from './compiler.js';
 import type { GenerateOptions } from './project.js';
 import { invalidJson, locateDiagnostics } from './catalog-diagnostics.js';
 import type { CatalogSource } from './catalog-diagnostics.js';
-import { assertPoText, parsePo, poError, quotePo } from './po.js';
+import { assertPoText, noteComments, parsePo, poError, quotePo } from './po.js';
+import { readNotes } from './notes.js';
 export { mergePo, serializePo } from './po.js';
 export type { MergePoOptions, MergePoResult, SerializePoOptions, SerializePoResult } from './po.js';
 
@@ -93,10 +94,11 @@ function indexCatalog(catalog: Catalog, locale: string): Map<string, Leaf> {
 /** Export stable IDs as msgctxt and preserve the entire ICU message in msgid/msgstr. */
 export async function exportPo(options: TranslationOptions): Promise<ExportPoResult> {
   const input = await load(options);
-  const checked = checkProject({ ...options, catalogs: input.catalogs, missing: 'fallback' });
+  const checked = checkProject({ ...options, catalogs: input.catalogs, missing: 'fallback', notes: undefined });
   if (!checked.ok) throw new CompileError(locateDiagnostics(checked.errors, input.sources));
   const base = indexCatalog(input.catalogs[options.baseLocale]!, options.baseLocale);
   const target = indexCatalog(input.catalogs[options.locale] ?? {}, options.locale);
+  const notes = await readNotes(options);
   const lines = [
     '# ICU MessageFormat: translate text; retain argument and rich-text slot names.',
     '# msgctxt is a stable message ID. Do not change it.',
@@ -107,7 +109,7 @@ export async function exportPo(options: TranslationOptions): Promise<ExportPoRes
   for (const [id, source] of [...base].sort(([a], [b]) => compare(a, b))) {
     const translation = target.get(id);
     for (const text of [id, source.text, translation?.text ?? '']) assertPoText(text, { locale: options.locale, messageId: id });
-    lines.push('');
+    lines.push('', ...noteComments(notes, id));
     if (translation?.text === '') lines.push('#. nordbeam-locale:empty');
     lines.push(`msgctxt ${quotePo(id)}`, `msgid ${quotePo(source.text)}`, `msgstr ${quotePo(translation?.text ?? '')}`);
   }
@@ -181,7 +183,7 @@ export async function importPo(options: ImportPoOptions): Promise<ImportPoResult
     accepted.set(entry.id, entry.line);
   }
   input.catalogs[options.locale] = target;
-  const checked = checkProject({ ...options, catalogs: input.catalogs });
+  const checked = checkProject({ ...options, catalogs: input.catalogs, notes: undefined });
   // Edited values have PO coordinates; untouched values keep JSON coordinates.
   const translated = (diagnostic: Diagnostic): Diagnostic => {
     const line = diagnostic.locale === options.locale ? accepted.get(diagnostic.messageId ?? '') : undefined;

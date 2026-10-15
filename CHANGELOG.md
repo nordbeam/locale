@@ -37,6 +37,15 @@ out in this file.
 - **TanStack Start: `getLocale()` returns `undefined` outside a request**, as
   documented, instead of throwing Start's "No Start context found" error in
   queue consumers, scheduled handlers and module scope.
+- **Notes about messages.** A notes file shaped like a catalog, named with
+  `"notes"` in the config, holds context for translators and developers:
+  where a text appears, what an argument holds, or that legal reviews every
+  change. A note shows beside its message in editor hovers (`@remarks`) and as
+  `#.` comments in PO exports (`serializePo` takes `notes` too), and `rename`
+  moves it with its message. `check` and `generate` warn with `UNKNOWN_NOTE`
+  for a note whose message is gone, and refuse a malformed notes file or one in
+  the catalog directory with `INVALID_NOTES`. Catalogs still hold message text
+  only.
 - **`init --framework tanstack-start`** no longer suggests calling
   `routerOptions()` twice to merge your own router context. Two calls create
   two router states.
@@ -61,6 +70,16 @@ out in this file.
   unsupported svelte-i18n option by another, so `--strict` refused a complete
   migration. A custom call now belongs to the format that detected the same
   callee, or else to a pass that passes values through unchanged.
+- **`migrate --format module` reads dictionaries kept in TypeScript or
+  JavaScript**, as typesafe-i18n, next-international and hand-written apps keep
+  them. The file is parsed, never run: the default export (with `as const` or
+  `satisfies`), `module.exports`, or the only exported object. String literals,
+  plain template literals and `+` joins migrate; computed values and spreads
+  are skipped with `MIGRATION_UNSUPPORTED_VALUE`. `inferMigrationFormat` maps
+  `.ts`, `.mts`, `.cts`, `.js`, `.mjs` and `.cjs` to it.
+- **`migrate --notes <file>` keeps descriptions.** Comments above a message in
+  a dictionary module, FormatJS `description` fields and ARB `@key`
+  descriptions become a notes file instead of being dropped.
 - **Codemod: a kept side-effect import keeps its line.** When a custom
   formatter import lost its last name, the `import '…';` left in its place was
   joined onto the next line, and its quotes became double quotes.

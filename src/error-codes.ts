@@ -40,7 +40,7 @@ export function usageError(message: string, details: Record<string, unknown> = {
 }
 
 const warningCodes = new Set([
-  'EMPTY_SCOPE_PATTERN', 'MISSING_MESSAGE', 'FALLBACK_MESSAGE', 'MISSING_PLURAL_CATEGORY', 'DROPPED_RICH_TAG', 'IGNORED_CATALOG_FILE',
+  'EMPTY_SCOPE_PATTERN', 'UNKNOWN_NOTE', 'MISSING_MESSAGE', 'FALLBACK_MESSAGE', 'MISSING_PLURAL_CATEGORY', 'DROPPED_RICH_TAG', 'IGNORED_CATALOG_FILE',
   'CONFIG_DEVELOPMENT_IGNORED', 'SELECTION_FALLBACK', 'MISSING_MESSAGES_BINDING', 'RENAME_DYNAMIC_REFERENCE', 'UNUSED_MESSAGE',
   'DOTTED_SOURCE_ID', 'LINGUI_COMPILED_ENTRY', 'I18NEXT_CONTEXT', 'I18NEXT_FORMATTER', 'I18NEXT_NESTING', 'I18NEXT_TRANS_INDEX',
   'MIGRATION_INTERPOLATION_REVIEW', 'MIGRATION_LITERAL_BRACE', 'MIGRATION_LOCALE_REQUIRED', 'MIGRATION_MESSAGE_FIELD', 'MIGRATION_METADATA_DROPPED',
@@ -95,6 +95,8 @@ const definitions: Record<string, [explanation: string, fix: string, exitCode?: 
   INVALID_SELECTION: ['A requested loader or locale is not part of the generated project.', 'Use a locale that has a catalog, or add the catalog and regenerate.'],
   INVALID_FORMAT: ['An ICU number, date or time pattern or skeleton was rejected by Intl.', 'Correct the pattern or skeleton named in the message.'],
   EMPTY_SCOPE_PATTERN: ['A configured scope pattern matches no messages, so the scope selects nothing.', 'Correct the pattern, or remove the scope if it is no longer needed.'],
+  INVALID_NOTES: ['The notes file cannot be read, is not JSON shaped like a catalog, or sits in the catalog directory.', 'Keep the notes file outside the catalog directory, as a JSON object whose leaves are note strings.'],
+  UNKNOWN_NOTE: ['A note describes a message ID that is not in the base catalog, usually after a rename or a removal.', 'Move the note to the message\'s new ID, or delete it.'],
   UNKNOWN_MESSAGE: ['A selected or referenced message ID does not exist in the base catalog.', 'Add the message to the base catalog, or correct the ID.'],
   UNKNOWN_MESSAGE_ID: ['A source call or command references a message ID that the catalog does not define.', 'Add the ID to the base catalog with extract, or correct the reference.'],
   GENERATED_STALE: ['verify found generated output that is missing or was built from older catalogs or options. An input changed since the last generation, or the output has not been generated yet.', 'Run nordbeam-locale to regenerate the output, then run verify again.'],

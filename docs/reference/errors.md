@@ -461,6 +461,14 @@ A message ID is empty, starts or ends with a dot, or has an empty segment.
 
 **Fix:** Use a non-empty dotted ID such as checkout.pay.
 
+### INVALID_NOTES
+
+Severity: error.
+
+The notes file cannot be read, is not JSON shaped like a catalog, or sits in the catalog directory.
+
+**Fix:** Keep the notes file outside the catalog directory, as a JSON object whose leaves are note strings.
+
 ### INVALID_PO
 
 Severity: error.
@@ -1004,6 +1012,14 @@ Severity: error.
 A source call or command references a message ID that the catalog does not define.
 
 **Fix:** Add the ID to the base catalog with extract, or correct the reference.
+
+### UNKNOWN_NOTE
+
+Severity: warning.
+
+A note describes a message ID that is not in the base catalog, usually after a rename or a removal.
+
+**Fix:** Move the note to the message's new ID, or delete it.
 
 ### GENERATED_MODIFIED
 
