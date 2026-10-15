@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createRootRouteWithContext, HeadContent, Link, Outlet, Scripts } from '@tanstack/react-router';
 import type { TanStackStartRouterContext } from '@nordbeam/locale/tanstack-start';
 import { i18n } from '../i18n-app';
@@ -7,7 +7,7 @@ export const Route = createRootRouteWithContext<TanStackStartRouterContext<(type
   beforeLoad: i18n.beforeLoad,
   head: () => ({ meta: [{ charSet: 'utf-8' }, { name: 'viewport', content: 'width=device-width, initial-scale=1' }] }),
   shellComponent: RootDocument,
-  component: () => <i18n.Provider><Layout /></i18n.Provider>,
+  component: Root,
 });
 
 function RootDocument({ children }: { children: ReactNode }) {
@@ -18,9 +18,17 @@ function RootDocument({ children }: { children: ReactNode }) {
   </html>;
 }
 
-function Layout() {
+// State set once the page is interactive, as analytics or theme code does. The update reaches
+// the provider while hydration may still be waiting for the catalog.
+function Root() {
+  const [interactive, setInteractive] = useState(false);
+  useEffect(() => setInteractive(true), []);
+  return <i18n.Provider><Layout interactive={interactive} /></i18n.Provider>;
+}
+
+function Layout({ interactive }: { interactive: boolean }) {
   const { messages: m } = i18n.useI18n();
-  return <main>
+  return <main data-interactive={interactive || undefined}>
     <nav>
       <Link to="/">{m.title()}</Link>{' '}
       <Link to="/about" data-nav="about">{m.about()}</Link>{' '}

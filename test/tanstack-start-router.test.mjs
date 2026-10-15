@@ -247,3 +247,34 @@ test('the router keeps working without the i18n context', async () => {
   const result = await i18n.beforeLoad({ location: { publicHref: '/de/x' }, context: {}, matches: [] });
   assert.deepEqual(result, { locale: 'de' });
 });
+
+test('the hydrate hook waits for the catalog of the server-rendered page, and never rejects', async () => {
+  const pending = new Map();
+  const routing = defineRouting({ locales: ['en', 'de'], defaultLocale: 'en', localePrefix: 'as-needed' });
+  const i18n = createTanStackStartI18n({
+    routing,
+    loadLocale: locale => new Promise((resolve, reject) => pending.set(locale, { resolve: () => resolve({ locale, messages: catalogs[locale] }), reject })),
+  });
+  // Without a server-rendered page there is nothing to wait for.
+  await i18n.routerOptions().hydrate();
+  assert.deepEqual([...pending.keys()], []);
+  globalThis.document = { documentElement: { lang: 'de' } };
+  try {
+    const { hydrate } = i18n.routerOptions();
+    let done = false;
+    const hydrating = hydrate().then(() => { done = true; });
+    await new Promise(resolveTick => setImmediate(resolveTick));
+    assert.equal(done, false, 'hydrate resolved before the catalog loaded');
+    pending.get('de').resolve();
+    await hydrating;
+    assert.equal(i18n.isLoaded('de'), true);
+    // A failed load resolves the hook, so the router still hydrates; the Provider throws the error to the error boundary.
+    i18n.invalidate('de');
+    const failing = i18n.routerOptions().hydrate();
+    pending.get('de').reject(new Error('offline'));
+    await failing;
+    assert.equal(i18n.isLoaded('de'), false);
+  } finally {
+    delete globalThis.document;
+  }
+});

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createLocaleFunctionMiddleware, createLocaleMiddleware, defineRouting } from '../dist/tanstack-start.js';
+import { runWithStartContext } from '@tanstack/start-storage-context';
+import { createLocaleFunctionMiddleware, createLocaleMiddleware, defineRouting, getLocale } from '../dist/tanstack-start.js';
 
 const routing = (localePrefix, extra = {}) => defineRouting({
   locales: ['en', 'fr'],
@@ -213,4 +214,13 @@ test('the function middleware sends nothing until a page locale is known', async
   const sent = [];
   await middleware.options.client({ next: options => { sent.push(options); return {}; } });
   assert.deepEqual(sent, [{}]);
+});
+
+test('getLocale reads the request context, and is undefined outside a request', () => {
+  // Start throws outside a request (queue consumers, module scope); getLocale must not.
+  assert.equal(getLocale(), undefined);
+  assert.equal(runWithStartContext({ contextAfterGlobalMiddlewares: { locale: 'fr' } }, getLocale), 'fr');
+  assert.equal(runWithStartContext({ contextAfterGlobalMiddlewares: { locale: undefined } }, getLocale), undefined);
+  // Before the global middleware ran, the context is not set yet.
+  assert.equal(runWithStartContext({}, getLocale), undefined);
 });

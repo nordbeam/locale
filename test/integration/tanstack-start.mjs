@@ -243,6 +243,46 @@ async function runBrowserCheck() {
     const catalogs = requests.filter(url => /\/assets\/(en|fr|ar)-[\w-]+\.js$/.test(url));
     const counts = Object.fromEntries(['en', 'fr', 'ar'].map(locale => [locale, catalogs.filter(url => new RegExp(`/assets/${locale}-`).test(url)).length]));
 
+    // Hydration keeps the server-rendered page while the catalog is on its way. The catalog is
+    // held back for a second, so it arrives after React would have started hydrating.
+    const watcher = await chrome.page('Page.addScriptToEvaluateOnNewDocument', { source: `document.addEventListener('DOMContentLoaded', () => {
+      const heading = document.querySelector('h1');
+      window.__nordbeamHydration = { heading, removed: false };
+      new MutationObserver(records => {
+        for (const record of records) for (const node of record.removedNodes) if (node === heading || node.contains?.(heading)) window.__nordbeamHydration.removed = true;
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    })` });
+    await chrome.page('Fetch.enable', { patterns: [{ urlPattern: '*/assets/fr-*.js', requestStage: 'Request' }] });
+    const offPaused = chrome.on('Fetch.requestPaused', ({ requestId }) => {
+      setTimeout(() => { chrome.page('Fetch.continueRequest', { requestId }).catch(() => {}); }, 1_000);
+    });
+    let hydration;
+    try {
+      await open('/fr');
+      const deadline = Date.now() + 15_000;
+      do {
+        hydration = await chrome.evaluate(`(() => {
+          const heading = document.querySelector('h1');
+          return {
+            hydrated: Boolean(heading) && Object.keys(heading).some(key => key.startsWith('__reactFiber')),
+            kept: heading === window.__nordbeamHydration?.heading,
+            removed: window.__nordbeamHydration?.removed ?? null,
+            heading: heading?.textContent ?? null,
+          };
+        })()`);
+        if (hydration.hydrated) break;
+        await new Promise(resolveWait => setTimeout(resolveWait, 20));
+      } while (Date.now() < deadline);
+    } finally {
+      offPaused();
+      await chrome.page('Fetch.disable');
+      await chrome.page('Page.removeScriptToEvaluateOnNewDocument', { identifier: watcher.identifier });
+    }
+    assert.equal(hydration.hydrated, true, `the page did not hydrate: ${JSON.stringify(hydration)}`);
+    assert.equal(hydration.heading, 'Prise en charge de TanStack Start');
+    assert.equal(hydration.removed, false, 'hydration removed the server-rendered heading');
+    assert.equal(hydration.kept, true, 'hydration replaced the server-rendered heading');
+
     assert.deepEqual(browserErrors, [], 'browser reported errors');
     return { status: 'passed', catalogRequests: counts, browserErrors: [] };
   } finally {

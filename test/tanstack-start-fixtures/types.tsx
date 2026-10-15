@@ -34,8 +34,9 @@ export const loaded = i18n.load('de').then(value => value.messages.greeting({ na
 export const typed: string = i18n.useMessages().greeting({ name: 'Ada' });
 export const current: 'en' | 'de' = i18n.useLocale();
 export const html: { readonly lang: 'en' | 'de'; readonly dir: 'ltr' | 'rtl' } = i18n.useHtmlAttributes();
-export const resolved: Promise<{ locale: 'en' | 'de' }> = i18n.beforeLoad({ location: { publicHref: '/de' }, context: {}, matches: [] });
+export const resolved: Promise<{ locale: 'en' | 'de' }> = i18n.beforeLoad({ location: { publicHref: '/de' }, context: {} });
 export const context: TanStackStartRouterContext<'en' | 'de'> = i18n.routerOptions().context;
+export const hydrate: () => Promise<void> = i18n.routerOptions().hydrate;
 export const where: string | undefined = getLocale();
 
 // Both middlewares register in createStart.

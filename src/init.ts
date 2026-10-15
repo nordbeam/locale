@@ -268,7 +268,7 @@ declare module '@tanstack/react-router' {
 }
 `, result, apply);
   if (result.existing.includes(router) && !(await textOrEmpty(router)).includes('routerOptions')) {
-    result.notes.push(`In src/router.tsx, spread the locale options into createRouter: import { i18n } from '${i18nFrom(router)}'; createRouter({ routeTree, ...i18n.routerOptions() }). To add your own router context, merge it: context: { ...i18n.routerOptions().context, ...yourContext }.`);
+    result.notes.push(`In src/router.tsx, spread the locale options into createRouter: import { i18n } from '${i18nFrom(router)}'; createRouter({ routeTree, ...i18n.routerOptions() }). To add your own router context, call it once and merge: const options = i18n.routerOptions(); createRouter({ routeTree, ...options, context: { ...options.context, ...yourContext } }).`);
   }
 
   await createIfAbsent(rootRoute, `import type { ReactNode } from 'react';

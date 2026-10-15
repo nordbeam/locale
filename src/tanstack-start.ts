@@ -264,9 +264,13 @@ export function createLocaleFunctionMiddleware() {
  * browser. On the server it needs the request middleware, which puts the
  * locale in the request context. Call it in server functions and server
  * routes; loaders and `beforeLoad` receive the locale as `context.locale`.
+ * Outside a request, such as in a queue consumer, it returns `undefined`.
  */
 export function getLocale(): string | undefined {
-  const context = getGlobalStartContext() as { readonly locale?: unknown } | undefined;
+  let context: { readonly locale?: unknown } | undefined;
+  // On the server, Start throws when no request is running or its global middleware has not run yet.
+  try { context = getGlobalStartContext() as { readonly locale?: unknown } | undefined; }
+  catch { return undefined; }
   if (context === undefined) return browserLocale;
   return typeof context.locale === 'string' ? context.locale : undefined;
 }
@@ -288,14 +292,22 @@ export interface TanStackStartI18nOptions<Locale extends string, Messages> {
   readonly loadLocale: (locale: Locale) => Promise<LoadedLocale<Locale, Messages>>;
 }
 
+/**
+ * The options the root `beforeLoad` reads. `matches` is read but not declared: TanStack
+ * types it as a union over every route of the registered router, so declaring it makes
+ * TypeScript resolve the router while it is still inferring the root route. When a typed
+ * `Link` is checked before the root route, that reports `Route` and `getRouter` as
+ * circular (TS7022, TS7023).
+ */
 interface RootBeforeLoadOptions {
   readonly location: { readonly publicHref: string };
   readonly context: unknown;
-  readonly matches: readonly { invalid?: boolean; readonly routeId?: unknown }[];
   readonly preload?: boolean;
   /** The request middleware context. Start passes it as an option while server rendering. */
   readonly serverContext?: { readonly locale?: unknown };
 }
+
+type RootBeforeLoadMatches = readonly { invalid?: boolean; readonly routeId?: unknown }[];
 
 /**
  * Locale handling for a TanStack Start application, built on the router
@@ -354,15 +366,27 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
   }
 
   /**
-   * Options for `createRouter`: the rewrite and the router context that holds
-   * its state. Spread them in `getRouter()`, and merge your own context:
-   * `createRouter({ routeTree, ...i18n.routerOptions() })`.
+   * The router's `hydrate` hook. TanStack awaits it before React hydrates, so the catalog
+   * of the server-rendered page is in when hydration reaches the `Provider`. Were the
+   * catalog still loading, the `Provider` would suspend, and the router's first update
+   * would make React replace the server HTML with the empty fallback until it arrived.
+   * A failed load is left to the `Provider`, which throws it to the error boundary.
+   */
+  async function hydrate(): Promise<void> {
+    const locale = documentLocale(core);
+    if (locale) await react.preload(locale).then(() => undefined, () => undefined);
+  }
+
+  /**
+   * Options for `createRouter`: the rewrite, the router context that holds its
+   * state, and the `hydrate` hook. Spread them in `getRouter()`, and merge your
+   * own context: `createRouter({ routeTree, ...i18n.routerOptions() })`.
    */
   function routerOptions() {
     const state = createRouterState();
     // Start the browser's catalog request before hydration reaches the provider.
     if (documentLocale(core)) void react.preload(state.locale).catch(() => undefined);
-    return { rewrite: createRewrite(state), context: { i18n: state } satisfies TanStackStartRouterContext<Locale> };
+    return { rewrite: createRewrite(state), context: { i18n: state } satisfies TanStackStartRouterContext<Locale>, hydrate };
   }
 
   function stateOf(context: unknown): TanStackStartRouterState<Locale> | undefined {
@@ -390,7 +414,9 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
    * messages, and returns `{ locale }` as route context for every route.
    * Navigation waits for the catalog, so a locale switch never shows a flash.
    */
-  async function beforeLoad({ location, context, matches, preload, serverContext }: RootBeforeLoadOptions): Promise<{ locale: Locale }> {
+  async function beforeLoad(options: RootBeforeLoadOptions): Promise<{ locale: Locale }> {
+    const { location, context, preload, serverContext } = options;
+    const matches = (options as { readonly matches?: RootBeforeLoadMatches }).matches ?? [];
     const state = stateOf(context);
     const locale = localeOf(location.publicHref, serverContext?.locale, state);
     if (state && !preload) {
@@ -424,7 +450,8 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
     const router = useRouter();
     const state = stateOf(router.options.context);
     if (state) state.refreshLinks = () => router.update(router.options);
-    // A boundary of its own keeps server HTML on screen if hydration reaches a catalog that is still loading.
+    // The `hydrate` hook and the root `beforeLoad` load the catalog before anything renders
+    // it, so this boundary only catches a catalog that was invalidated or never requested.
     return createElement(React.Suspense, { fallback: null }, createElement(react.Provider, { locale }, children));
   }
 

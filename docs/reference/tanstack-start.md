@@ -105,7 +105,7 @@ wiring.
 | Piece | Runs | Job |
 | --- | --- | --- |
 | `createLocaleMiddleware(routing)` | server, every document request | Detects the locale, redirects to the canonical URL, writes the locale cookie and the `hreflang` `Link` header, and puts `locale` in the request context. |
-| `routerOptions()` | server and browser | The router `rewrite` (public URL to route tree and back) and the router context that holds its state. |
+| `routerOptions()` | server and browser | The router `rewrite` (public URL to route tree and back), the router context that holds its state, and the `hydrate` hook that loads the page's catalog before React hydrates. |
 | `beforeLoad` on the root route | server and browser | Resolves the locale of the URL, loads its messages, and returns `{ locale }` as route context. |
 | `Provider`, `useMessages`, `useI18n`, `useLocale` | render | Messages for the page's locale, from the existing React adapter. |
 | `createLocaleFunctionMiddleware()` | browser | Sends the page locale with every server function call. |
@@ -216,7 +216,8 @@ const greet = createServerFn().handler(async () => {
 ```
 
 `getLocale()` reads the request context on the server and returns `undefined`
-when the request middleware did not run for that request. In the browser it
+when the request middleware did not run for that request, and outside a request,
+such as in a queue consumer or at module scope. In the browser it
 returns the locale of the current page. Narrow it to your locale type before
 calling `i18n.load`, or validate it with `i18n.locales.includes`.
 
@@ -231,14 +232,32 @@ same commit as the URL.
 
 ### `routerOptions()`
 
-Spread it into `createRouter`. It returns `{ rewrite, context }`: a rewrite with
-its own state, and the router context entry (`context.i18n`) that holds that
-state. Call it once per router, which `getRouter()` already does for every
-request on the server. To add your own context, merge it:
+Spread it into `createRouter`. It returns `{ rewrite, context, hydrate }`: a
+rewrite with its own state, the router context entry (`context.i18n`) that holds
+that state, and the router's `hydrate` hook. Call it once per router, which
+`getRouter()` already does for every request on the server. To add your own
+context, merge it:
 
 ```ts
 const options = i18n.routerOptions();
 createRouter({ routeTree, ...options, context: { ...options.context, queryClient } });
+```
+
+TanStack awaits `hydrate` before React hydrates. It waits for the catalog named
+by the `lang` of the server-rendered `<html>`; see
+[Loading and hydration](#loading-and-hydration). If you pass your own `hydrate`,
+call this one from it. Do the same for any subtree that you render in another
+locale than the page:
+
+```ts
+const options = i18n.routerOptions();
+createRouter({
+  routeTree,
+  ...options,
+  hydrate: async () => {
+    await Promise.all([options.hydrate(), i18n.load('en')]);
+  },
+});
 ```
 
 The rewrite maps `/fr/a-propos` to the route `/about` and records the locale of
@@ -260,11 +279,18 @@ before anything renders:
 It returns `{ locale }`. The value is serialized in the dehydrated route state, so the
 browser does not recompute it.
 
+Pass it as it is: `beforeLoad: i18n.beforeLoad`. Its parameter type declares only
+the options it needs, and leaves out `matches`, which TanStack types from the
+registered router. Declaring `matches` made the root route's type depend on the
+router, and TypeScript then reported `Route` and `getRouter` as circular
+(TS7022, TS7023) when a file with a typed `Link` was checked first.
+
 ### `Provider`, `useHtmlAttributes`
 
 `Provider` provides the page's messages to the tree and belongs in the root
-route's `component`. It has its own `Suspense` boundary, so server HTML stays on
-screen if hydration reaches a catalog that is still loading.
+route's `component`. It has its own `Suspense` boundary with an empty fallback.
+The `hydrate` hook and the root `beforeLoad` load each catalog before it renders,
+so the boundary does not suspend on the page's own locale.
 `useHtmlAttributes()` returns `{ lang, dir }` for `<html>`; `dir` is `rtl` for
 right-to-left scripts. Use it in the `shellComponent`. It falls back to the
 default locale when the root route failed before it resolved a locale.
@@ -310,10 +336,22 @@ i18n.getPathname({ to: '/docs/$', params: { _splat: 'a/b' }, locale: 'de' });   
 On the server, the root `beforeLoad` awaits the catalog, so the first render has
 its messages and the HTML is translated. The server never sends the messages to
 the browser, because they are functions; the browser loads the chunk itself.
-`routerOptions()` starts that request while the router is created, before React
-hydrates, from the `lang` of the server-rendered `<html>`. Hydration then reads
-the same in-flight request, so each catalog is requested once per page load.
-The check at `test/integration/tanstack-start.mjs` asserts this in Chrome.
+`routerOptions()` starts that request while the router is created, from the
+`lang` of the server-rendered `<html>`, and its `hydrate` hook holds hydration
+until the request completes. Each catalog is requested once per page load.
+
+Hydration must not reach the `Provider` before the catalog. The `Provider` would
+suspend, React would keep the server HTML for the moment, and the first update
+that reaches the boundary would make React replace that HTML with the empty
+fallback until the catalog arrived. Any state set in an effect above the
+`Provider` is such an update. The page goes blank between first paint and
+hydration, and its largest paint moves to the moment the catalog arrives. Keep
+`hydrate` in the router options, and render `<html {...i18n.useHtmlAttributes()}>`
+so the browser knows which catalog the page needs.
+
+The check at `test/integration/tanstack-start.mjs` asserts in Chrome that each
+catalog is requested once, and that the server-rendered heading is still the
+same element after hydration when its catalog arrives a second late.
 
 A locale switch loads its catalog before the URL changes. Other locales are
 fetched only when the user switches to them. Use configured

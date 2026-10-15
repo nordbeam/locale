@@ -7,6 +7,29 @@ out in this file.
 
 ## Unreleased
 
+### `@nordbeam/locale`
+
+- **TanStack Start: hydration no longer blanks the page while the catalog
+  loads.** The `Provider` suspended when hydration reached a catalog that was
+  still loading. The first update above it, such as an effect that sets state,
+  then made React replace the server HTML with the empty fallback until the
+  catalog arrived. `routerOptions()` now also returns the router's `hydrate`
+  hook, which TanStack awaits before React hydrates. Apps that spread
+  `routerOptions()` get it without changes. If you pass your own `hydrate`, call
+  `options.hydrate()` from it.
+- **TanStack Start: `beforeLoad: i18n.beforeLoad` keeps the root route typed.**
+  The parameter type declared `matches`, which TanStack types from the
+  registered router. When a file with a typed `Link` was checked before the
+  root route, TypeScript reported `Route` and `getRouter` as circular (TS7022,
+  TS7023). The parameter type no longer declares `matches`. A direct call that
+  passes `matches` in an object literal must drop it or cast.
+- **TanStack Start: `getLocale()` returns `undefined` outside a request**, as
+  documented, instead of throwing Start's "No Start context found" error in
+  queue consumers, scheduled handlers and module scope.
+- **`init --framework tanstack-start`** no longer suggests calling
+  `routerOptions()` twice to merge your own router context. Two calls create
+  two router states.
+
 ## 0.2.2
 
 No code changes. The three packages are republished together at one version.

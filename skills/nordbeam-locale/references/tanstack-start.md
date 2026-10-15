@@ -48,11 +48,12 @@ export const startInstance = createStart(() => ({
 ```
 
 ```tsx
-// src/router.tsx: the rewrite and its state
+// src/router.tsx: the rewrite, its state, and the hydrate hook
 export function getRouter() {
   return createRouter({ routeTree, scrollRestoration: true, ...i18n.routerOptions() });
 }
 // to add your own context: const options = i18n.routerOptions(); createRouter({ routeTree, ...options, context: { ...options.context, queryClient } })
+// your own hydrate must call the locale one: hydrate: async () => { await options.hydrate(); /* yours */ }
 ```
 
 ```tsx
@@ -64,7 +65,7 @@ export const Route = createRootRouteWithContext<TanStackStartRouterContext<(type
 });
 ```
 
-Call `i18n.routerOptions()` once per router. `pathnames` keys are TanStack route paths (`/blog/$slug`, `/docs/$` with param `_splat`), every variant must declare the same params, and optional params (`{-$slug}`) or prefixed/suffixed params are rejected with a `TypeError`. A key that matches no route silently never matches, and keys are not type-checked against the route tree.
+Call `i18n.routerOptions()` once per router, and keep its `hydrate`: it holds React hydration until the page's catalog (from `<html lang>`) is in. Without it the `Provider` suspends mid-hydration, and the first update above it (any effect that sets state) makes React replace the server HTML with an empty fallback until the catalog arrives. Pass `beforeLoad: i18n.beforeLoad` as is; no wrapper or return annotation is needed. `pathnames` keys are TanStack route paths (`/blog/$slug`, `/docs/$` with param `_splat`), every variant must declare the same params, and optional params (`{-$slug}`) or prefixed/suffixed params are rejected with a `TypeError`. A key that matches no route silently never matches, and keys are not type-checked against the route tree.
 
 ## Components, links, switching
 
