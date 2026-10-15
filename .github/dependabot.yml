@@ -6,10 +6,17 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      # Major updates arrive as their own pull requests, so a breaking release
+      # cannot hold back the minor and patch updates grouped with it.
       runtime:
         dependency-type: production
+        update-types: [minor, patch]
       development:
         dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # Must not be newer than engines.vscode in editors/vscode/package.json.
+      - dependency-name: "@types/vscode"
   - package-ecosystem: github-actions
     directory: /
     schedule:
