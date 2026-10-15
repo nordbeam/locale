@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, writeFile, readFile, unlink, realpath, rename, rm } from 'node:fs/promises';
+import { cp, mkdir, writeFile, readFile, unlink, realpath, rename, rm } from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -110,6 +110,16 @@ function watchLog(watcher) {
 }
 // Poll generated output until it reflects a write. Assertions stay inside
 // check, so the last real mismatch is reported after the timeout.
+// A watch rebuild can replace dist/ while a test imports it, and Node caches a
+// failed import per URL, so a retry would keep failing on the same hashed chunk.
+// Each load imports its own copy of dist/, under URLs no earlier attempt used.
+let snapshots = 0;
+async function importBuild(root) {
+  const copy = join(root, `.snapshot-${snapshots++}`);
+  await cp(join(root, 'dist'), copy, { recursive: true });
+  return import(pathToFileURL(join(copy, 'entry.js')).href);
+}
+
 async function eventually(check, timeout = 20000) {
   const deadline = Date.now() + timeout;
   for (;;) {
@@ -121,7 +131,6 @@ async function eventually(check, timeout = 20000) {
 
 test('build watch replans catalog, route and locale edits and recovers invalid catalogs', async t => {
   const { root, en, fr, config, output } = await fixture(t);
-  let generation = 0;
   const results = [], events = [];
   const watcher = await build({ ...config, plugins: [nordbeamLocale(), {
     name: 'record-watch-output',
@@ -131,7 +140,7 @@ test('build watch replans catalog, route and locale edits and recovers invalid c
   const watch = watchLog(watcher);
   try {
     await watch.expect(0, 'BUNDLE_END');
-    const load = async () => import(pathToFileURL(join(root, 'dist/entry.js')).href + `?generation=${generation++}`);
+    const load = () => importBuild(root);
     // Native watcher events for a repeated path are throttled for 50 ms. Keep
     // fixture edits outside that window, including invalid-edit recovery.
     const guard = () => delay(75);
@@ -193,10 +202,9 @@ test('watch caches follow active selections and removed selections can be restor
   for (const shareMessages of [true, false]) {
     const { root, config, output } = await fixture(t);
     instances.clear();
-    let generation = 0;
     const watcher = await build({ ...config, plugins: [nordbeamLocale({ shareMessages })], build: { ...output, ssr: true, watch: {} } });
     const watch = watchLog(watcher);
-    const entry = () => import(pathToFileURL(join(root, 'dist/entry.js')).href + `?cache=${generation++}`);
+    const entry = () => importBuild(root);
     try {
       await watch.expect(0, 'BUNDLE_END');
       // Every edit abandons the previous selection; null removes the route's
@@ -253,7 +261,7 @@ test('an unchanged invalid catalog reports one watch error and repairs without a
     assert.equal(watch.log.filter(event => event.code === 'ERROR').length, 1);
     await delay(75); from = watch.log.length; await writeFile(file, JSON.stringify({ ...en, shared: 'REPAIRED {n, number}' }));
     await watch.expect(from, 'BUNDLE_END');
-    const entry = await eventually(() => import(pathToFileURL(join(root, 'dist/entry.js')).href + '?repair'));
+    const entry = await eventually(() => importBuild(root));
     for (const page of entry.pages) assert.equal((await (await page()).load('de')).messages.shared({ n: 2 }), 'REPAIRED 2');
     assert.equal(watch.log.filter(event => event.code === 'ERROR').length, 1);
   } finally { await watcher.close(); }
