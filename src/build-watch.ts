@@ -60,6 +60,10 @@ export class CatalogWatch {
     for (const [name, event] of this.events) if (event.revision <= this.observed.revision) this.events.delete(name);
     this.observed = undefined;
     this.building = false;
+    // The native watcher can miss an edit made during the attempt: on macOS a
+    // new fs.watch is not armed at once. Compare every catalog with what the
+    // attempt read, whether or not an event arrived.
+    this.events.set(null, { revision: ++this.eventRevision });
     this.schedule();
   }
 

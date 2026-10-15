@@ -166,3 +166,16 @@ test('a fingerprint scan cannot publish a wakeup after a newer attempt handles t
     assert.equal(await marker(), before);
   } finally { release(); clearTimeout(timeout); }
 });
+
+test('an edit the native watcher missed during an attempt still requests a rebuild', async t => {
+  const { input, bridge, marker } = await fixture(t);
+  await bridge.start(); bridge.finish();
+  await delay(200);
+  assert.equal(await marker(), '0', 'an unchanged attempt requested a rebuild');
+  await bridge.start();
+  // Drop native delivery, as when macOS has not yet armed a new watcher.
+  bridge.changed = () => {};
+  await writeFile(join(input, 'en.json'), '{"hello":"Edited"}');
+  bridge.finish();
+  await waitFor(async () => (await marker()) !== '0', 'A missed edit during the attempt did not request a rebuild');
+});
