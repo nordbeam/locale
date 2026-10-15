@@ -7,9 +7,10 @@ out in this file.
 
 ## Unreleased
 
-## 0.2.0
+## 0.2.1
 
-The first public release.
+The first public release. 0.2.0 was published briefly and withdrawn because its
+package metadata listed scripts from the development repository.
 
 ### `@nordbeam/locale`
 
