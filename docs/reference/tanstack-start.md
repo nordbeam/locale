@@ -340,6 +340,33 @@ the browser, because they are functions; the browser loads the chunk itself.
 `lang` of the server-rendered `<html>`, and its `hydrate` hook holds hydration
 until the request completes. Each catalog is requested once per page load.
 
+The browser can fetch that chunk before the entry runs. In a production build,
+the Vite plugin gives the server build the client chunks of each locale's
+catalog, and the `Provider` hints the page's chunks while rendering
+(`ReactDOM.preload`), which React 19 writes into `<head>` as
+`<link rel="preload" as="script" crossorigin fetchpriority="low">`. The hint is
+low priority because a high one competes with the render-blocking CSS: measured
+on a production site, a `modulepreload` hint made hydration 1.2 s earlier on a
+slow 4G profile but delayed first paint by 1.1 s, while the low-priority hint
+kept first paint unchanged and made hydration 0.1 to 0.3 s earlier. This needs
+a client build and a server build in one `vite build` (Start builds the client
+first), an absolute `base`, and React 19.
+Development servers and `selectMessages(...)` loaders get no hint. The hint
+travels on the generated `loadLocale`; a wrapper passes it on with
+`Object.assign`:
+
+```ts
+import { loadLocale } from './index';
+
+// A wrapper that also keeps each catalog for code outside React.
+export const loaded = new Map();
+const keepLoaded = Object.assign(
+  (locale: Parameters<typeof loadLocale>[0]) => loadLocale(locale).then(result => { loaded.set(locale, result.messages); return result; }),
+  loadLocale,
+);
+export const i18n = createTanStackStartI18n({ routing, loadLocale: keepLoaded });
+```
+
 Hydration must not reach the `Provider` before the catalog. The `Provider` would
 suspend, React would keep the server HTML for the moment, and the first update
 that reaches the boundary would make React replace that HTML with the empty

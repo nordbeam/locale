@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
 import { nordbeamLocale } from '../dist/vite.js';
 import { preloadManifest } from '../dist/preload-manifest.js';
@@ -98,4 +99,23 @@ test('preload manifest handles full-loader dependency cycles and shared imports'
   const selections = { modules: new Map() };
   const result = preloadManifest(root, project, selections, bundle, id => ({ importedIds: graph.get(id) ?? [] }));
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { version: 1, entries: { 'src/main.ts': { file: 'entry.js', locales: { en: ['cycle.js', 'locale-en.js', 'shared.js'] } } } });
+});
+
+test('a server build after the client build finds the client catalog chunks on the generated loadLocale', async t => {
+  const root = await temporary(t);
+  await mkdir(join(root, 'messages')); await mkdir(join(root, 'src'));
+  for (const locale of ['en', 'fr']) await writeFile(join(root, `messages/${locale}.json`), JSON.stringify({ a: `${locale}_A` }));
+  await writeFile(join(root, 'src/main.ts'), `export { loadLocale } from './i18n/index.js';`);
+  // Vite builds each environment with a fresh plugin instance, as these separate builds do.
+  const config = (ssr, outDir) => ({ root, configFile: false, logLevel: 'silent', plugins: [nordbeamLocale({ baseLocale: 'en', selectionFallback: 'off' })],
+    build: { write: ssr, ssr, outDir, minify: false, rollupOptions: { input: join(root, 'src/main.ts'), preserveEntrySignatures: 'strict' } } });
+  const client = await build(config(false, 'dist-client'));
+  const chunk = marker => client.output.find(item => item.type === 'chunk' && item.code.includes(marker)).fileName;
+  assert.ok(!client.output.some(item => item.type === 'chunk' && item.code.includes('nordbeam-locale.catalog-assets')));
+  await build(config(true, 'dist-server'));
+  const { loadLocale } = await import(pathToFileURL(join(root, 'dist-server/main.mjs')).href);
+  assert.deepEqual({ ...loadLocale[Symbol.for('nordbeam-locale.catalog-assets')] }, { en: [`/${chunk('en_A')}`], fr: [`/${chunk('fr_A')}`] });
+  assert.equal((await loadLocale('fr')).messages.a(), 'fr_A');
+  // The documented way for a wrapper to keep them.
+  assert.equal(Object.assign(() => {}, loadLocale)[Symbol.for('nordbeam-locale.catalog-assets')], loadLocale[Symbol.for('nordbeam-locale.catalog-assets')]);
 });

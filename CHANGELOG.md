@@ -23,6 +23,17 @@ out in this file.
   root route, TypeScript reported `Route` and `getRouter` as circular (TS7022,
   TS7023). The parameter type no longer declares `matches`. A direct call that
   passes `matches` in an object literal must drop it or cast.
+- **TanStack Start: the server hints the page's catalog chunk.** The browser
+  requested the catalog only once the entry ran the `hydrate` hook, one round
+  trip after the entry chunk. In a production build, the Vite plugin now gives
+  the server build the client chunks of each locale's catalog, and the
+  `Provider` emits them in `<head>` (React 19) as low-priority
+  `<link rel="preload" as="script">`, so the catalog downloads with the entry.
+  On Nordsynk's production build, hydration came 0.1 to 0.3 s earlier with
+  first paint unchanged; a high-priority `modulepreload` delayed first paint
+  by up to 1.1 s on slow 4G. A wrapper around the generated `loadLocale` keeps
+  the hint with `Object.assign(wrapper, loadLocale)`. `react-dom` is now an
+  optional peer dependency.
 - **TanStack Start: `getLocale()` returns `undefined` outside a request**, as
   documented, instead of throwing Start's "No Start context found" error in
   queue consumers, scheduled handlers and module scope.

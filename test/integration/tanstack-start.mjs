@@ -31,6 +31,8 @@ const complete = await readFile(join(application, 'src/i18n/locales/en.js'), 'ut
 assert.doesNotMatch(scoped, /UNUSED_TANSTACK_SENTINEL/);
 assert.match(complete, /UNUSED_TANSTACK_SENTINEL/);
 assert.deepEqual(await filesContaining(join(application, 'dist/client'), 'UNUSED_TANSTACK_SENTINEL'), [], 'unused catalog text reached a client chunk');
+const frenchCatalogs = (await filesContaining(join(application, 'dist/client'), 'Prise en charge de TanStack Start')).map(file => file.slice(join(application, 'dist/client').length));
+assert.equal(frenchCatalogs.length, 1);
 
 const socket = createServer();
 await new Promise((resolveListen, reject) => socket.once('error', reject).listen(0, '127.0.0.1', resolveListen));
@@ -82,6 +84,9 @@ function assertServerRendering(results) {
   assert.equal(fr.status, 200);
   assert.equal(html(fr.text), '<html lang="fr" dir="ltr">');
   assert.equal(heading(fr.text), 'Prise en charge de TanStack Start');
+  // The server names the page's catalog chunk, so the browser fetches it with the entry.
+  assert.ok(fr.text.includes(`<link rel="preload" href="${frenchCatalogs[0]}" as="script" crossorigin="" fetchPriority="low"/>`), 'the French page does not hint its catalog chunk');
+  assert.ok(!home.text.includes(frenchCatalogs[0]), 'the English page hints the French catalog chunk');
   assert.match(fr.text, /Bonjour Client !/);
   // Links keep the page's locale and use its localized pathnames.
   assert.match(fr.text, /<a data-nav="about" href="\/fr\/a-propos">/);

@@ -16,6 +16,12 @@ import { nordbeamLocale } from '@nordbeam/locale/vite';
 
 With `preloadManifest: true`, the client build emits `nordbeam-locale-preload.json`.
 
+When a server build follows the client build in the same process, as in
+`vite build` for TanStack Start, the server build's generated `loadLocale`
+carries the client chunk URLs of each locale's catalog, so the
+[TanStack Start adapter](tanstack-start.md#loading-and-hydration) can hint them
+while rendering. This needs an absolute `base`, and costs nothing in the client bundle.
+
 Selection runs after other plugins compile each module, so `.svelte` components and
 Vue script blocks (`App.vue?vue&type=script…`) are narrowed once their script is
 plain JavaScript. Modules that cannot import the generated catalog are not parsed.

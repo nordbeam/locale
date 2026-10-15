@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createElement, useCallback, useMemo } from 'react';
 import type { AnchorHTMLAttributes, ReactElement, ReactNode } from 'react';
+import * as ReactDOM from 'react-dom';
 import { createMiddleware, getGlobalStartContext } from '@tanstack/react-start';
 import { useRouter, useRouterState } from '@tanstack/react-router';
 import { createSuspenseI18n } from './react.js';
@@ -288,9 +289,14 @@ export interface TanStackStartGetPathnameOptions<Locale extends string> {
 
 export interface TanStackStartI18nOptions<Locale extends string, Messages> {
   readonly routing: TanStackStartRouting<Locale, any>;
-  /** The generated `loadLocale`, or a `selectMessages(...)` loader for the messages the app reads. */
+  /** The generated `loadLocale`, or a `selectMessages(...)` loader for the messages the app reads.
+   * A wrapper keeps the catalog preload hint with `Object.assign(wrapper, loadLocale)`. */
   readonly loadLocale: (locale: Locale) => Promise<LoadedLocale<Locale, Messages>>;
 }
+
+/** In a server build, the Vite plugin puts the client chunks of each locale's catalog
+ * on the generated `loadLocale` under this symbol. */
+const catalogAssetsKey = Symbol.for('nordbeam-locale.catalog-assets');
 
 /**
  * The options the root `beforeLoad` reads. `matches` is read but not declared: TanStack
@@ -325,6 +331,7 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
   const config = localePrefixConfig(core);
   const react = createSuspenseI18n<Locale, Messages>(options.loadLocale);
   const cookie = localeCookieAttributes(core);
+  const catalogAssets = (options.loadLocale as { readonly [catalogAssetsKey]?: Readonly<Record<string, readonly string[]>> })[catalogAssetsKey];
 
   function scopeFor(host: string | undefined | null): NextRouting<Locale, any> {
     return domainRouting(core, host) ?? core;
@@ -450,6 +457,11 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
     const router = useRouter();
     const state = stateOf(router.options.context);
     if (state) state.refreshLinks = () => router.update(router.options);
+    // While server rendering, React 19 puts these hints in <head>, so the browser fetches
+    // the catalog with the entry chunk instead of after it, when the hydrate hook asks.
+    // At low priority, because a high one competes with the render-blocking CSS and delays
+    // first paint. `crossorigin` matches the module request, so the chunk is fetched once.
+    for (const href of catalogAssets?.[locale] ?? []) ReactDOM.preload?.(href, { as: 'script', crossOrigin: '', fetchPriority: 'low' });
     // The `hydrate` hook and the root `beforeLoad` load the catalog before anything renders
     // it, so this boundary only catches a catalog that was invalidated or never requested.
     return createElement(React.Suspense, { fallback: null }, createElement(react.Provider, { locale }, children));

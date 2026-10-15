@@ -68,3 +68,35 @@ export function preloadManifest(root: string, project: GenerateResult, selection
   }
   return { version: 1 as const, entries };
 }
+
+/** Client chunks that hold each generated full loader's catalog, by locale, as URLs
+ * under `base`. Keys are absolute loader paths. Loaders missing from the bundle are
+ * left out, and so are chunks the loader already imports statically. */
+export function catalogAssets(project: GenerateResult, bundle: Rolldown.OutputBundle, base: string): Map<string, Record<string, string[]>> {
+  const chunks = Object.values(bundle).filter((item): item is Rolldown.OutputChunk => item.type === 'chunk');
+  const owners = new Map<string, string>();
+  for (const chunk of chunks) for (const id of chunk.moduleIds) owners.set(id, chunk.fileName);
+  const closure = (file: string, files = new Set<string>()): Set<string> => {
+    const chunk = bundle[file];
+    if (files.has(file) || !chunk || chunk.type !== 'chunk') return files;
+    files.add(file);
+    for (const imported of chunk.imports) closure(imported, files);
+    return files;
+  };
+  const prefix = base.endsWith('/') ? base : base + '/';
+  const result = new Map<string, Record<string, string[]>>();
+  for (const group of Object.keys(project.groups)) {
+    const loader = resolve(project.outDir, group);
+    const owner = owners.get(loader);
+    if (!owner) continue;
+    const loaded = closure(owner);
+    const locales: Record<string, string[]> = Object.create(null);
+    for (const locale of project.locales) {
+      const catalog = [resolve(loader, '..', 'internal', 'locales', `${locale}.js`), resolve(loader, '..', 'locales', `${locale}.js`)]
+        .map(module => owners.get(module)).find(Boolean);
+      locales[locale] = catalog ? [...closure(catalog)].filter(file => !loaded.has(file)).sort().map(file => prefix + file) : [];
+    }
+    result.set(loader, locales);
+  }
+  return result;
+}

@@ -11,7 +11,7 @@ import { generate as generateOnce, createGenerator } from './project.js';
 import type { GenerateOptions, GenerateResult } from './project.js';
 import { discoverConfig, readConfig } from './config.js';
 import { CompileError, diagnosticSummary } from './diagnostics.js';
-import { preloadManifest } from './preload-manifest.js';
+import { catalogAssets, preloadManifest } from './preload-manifest.js';
 import type { SelectionFallbackMode } from './selection.js';
 export type { SelectionFallbackMode } from './selection.js';
 export type { GenerateOptions } from './project.js';
@@ -91,6 +91,13 @@ export type ViteOptions = Omit<GenerateOptions, 'root' | 'baseLocale'> & {
    * intentional full-catalog escape hatch. */
   selectionFallback?: SelectionFallbackMode;
 };
+
+/** The client build's catalog chunks for each generated loader. Vite builds each
+ * environment with its own plugin instance, and builds the client first, so the
+ * server build that follows in this process finds them here. */
+const clientCatalogAssets = new Map<string, Record<string, string[]>>();
+/** The symbol under which a server build's generated `loadLocale` carries them. */
+const catalogAssetsKey = 'Symbol.for("nordbeam-locale.catalog-assets")';
 
 /** Generate real modules/types so imports also work in editors, tests and SSR. */
 export function nordbeamLocale(options?: ViteOptions): Plugin {
@@ -222,7 +229,13 @@ export function nordbeamLocale(options?: ViteOptions): Plugin {
     },
     moduleParsed(info) { sharing.get(this.environment)?.parsed(info); },
     generateBundle(_options, bundle) {
-      if (!emitPreloadManifest || development || workerOrLibrary || this.environment.config.consumer === 'server') return;
+      if (development || workerOrLibrary || this.environment.config.consumer === 'server') return;
+      // Relative bases resolve against the page URL, so a server cannot name these chunks.
+      const base = this.environment.config.base;
+      if (base.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(base)) {
+        for (const [loader, locales] of catalogAssets(project, bundle, base)) clientCatalogAssets.set(loader, locales);
+      }
+      if (!emitPreloadManifest) return;
       if (Object.hasOwn(bundle, 'nordbeam-locale-preload.json')
         || Object.values(bundle).some(item => item.fileName === 'nordbeam-locale-preload.json')) {
         this.error('Nordbeam Locale: cannot emit nordbeam-locale-preload.json because the bundle already owns that filename. Rename the existing asset or disable preloadManifest.');
@@ -291,6 +304,13 @@ export function nordbeamLocale(options?: ViteOptions): Plugin {
         throw error;
       });
       if (selected) devSelections?.record(this.environment as DevEnvironment, id, selected);
+      // Server builds: the generated loader carries the client chunks of each locale's
+      // catalog, so framework adapters can hint them while rendering. Enumerable, so
+      // `Object.assign(wrapper, loadLocale)` passes it on.
+      const assets = !development && this.environment.config.consumer === 'server' ? clientCatalogAssets.get(id) : undefined;
+      if (assets && !result && /^export async function loadLocale\(/m.test(code)) {
+        return { code: `${code}\nObject.defineProperty(loadLocale,${catalogAssetsKey},{value:${JSON.stringify(assets)},enumerable:true});\n`, map: null };
+      }
       return result;
     },
     configureServer(server) {

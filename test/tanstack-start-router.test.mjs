@@ -18,7 +18,7 @@ const catalogs = {
   ar: { title: () => 'مرحبا', about: () => 'حول' },
 };
 
-function app(routingOptions) {
+function app(routingOptions, catalogAssets) {
   const loads = [];
   const routing = defineRouting({
     locales: ['en', 'de', 'ar'],
@@ -31,10 +31,10 @@ function app(routingOptions) {
     },
     ...routingOptions,
   });
-  const i18n = createTanStackStartI18n({
-    routing,
-    loadLocale: async locale => { loads.push(locale); return { locale, messages: catalogs[locale] }; },
-  });
+  const loadLocale = async locale => { loads.push(locale); return { locale, messages: catalogs[locale] }; };
+  // What the Vite plugin attaches to the generated loader in a server build.
+  if (catalogAssets) Object.defineProperty(loadLocale, Symbol.for('nordbeam-locale.catalog-assets'), { value: catalogAssets });
+  const i18n = createTanStackStartI18n({ routing, loadLocale });
   const root = createRootRouteWithContext()({
     beforeLoad: i18n.beforeLoad,
     shellComponent: ({ children }) => createElement(Shell, null, children),
@@ -131,6 +131,15 @@ test('server rendering writes translated markup, lang, dir and localized links',
   const arabic = await render(router('/ar'));
   assert.match(arabic, /^<html lang="ar" dir="rtl">/);
   assert.match(arabic, /<h1>مرحبا<\/h1>/);
+});
+
+test('server rendering hints the client chunks of the page catalog, and only that locale', async () => {
+  const { router } = app(undefined, { en: ['/assets/en-1.js'], de: ['/assets/de-1.js', '/assets/literals-1.js'], ar: [] });
+  const german = await render(router('/de'));
+  assert.match(german, /<link rel="preload" href="\/assets\/de-1\.js" as="script" crossorigin="" fetchPriority="low"\/>/);
+  assert.match(german, /<link rel="preload" href="\/assets\/literals-1\.js"/);
+  assert.doesNotMatch(german, /en-1\.js/);
+  assert.doesNotMatch(await render(app().router('/de')), /rel="preload"/);
 });
 
 test('LocaleLink points at the current page in each locale', async () => {
