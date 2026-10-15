@@ -1,3 +1,4 @@
+import type { TextScanConfig } from './text-scan.js';
 import { readFileSync } from 'node:fs';
 import { readdir, readFile, mkdir, writeFile, rename, unlink, lstat } from 'node:fs/promises';
 import { dirname, resolve, relative, isAbsolute, sep } from 'node:path';
@@ -39,6 +40,8 @@ export interface GenerateOptions extends Omit<CompilerOptions, 'catalogs' | 'not
    * per project. true uses node_modules/.cache/nordbeam-locale. Disabled by default;
    * watch sessions retain their existing in-memory cache instead. */
   persistentCache?: boolean | string;
+  /** How hardcoded and doctor find UI text outside the catalog. Not used by generation. */
+  text?: TextScanConfig;
 }
 export interface GenerateResult extends CompiledProject {
   catalogFiles: string[];
@@ -394,7 +397,7 @@ async function generateProject(options: GenerateOptions, read: (file: string) =>
   const resolved = { ...options, scopes: scoped.scopes, ...(scoped.computed.length ? { checkedScopes: scoped.computed } : {}) };
   // The digest covers what decides the output. The cache setting does not, so
   // enabling or disabling the artifact cache keeps the same manifest.
-  const { persistentCache, ...compilerOptions } = resolved;
+  const { persistentCache, text, ...compilerOptions } = resolved;
   const inputs = await inputDigest({ ...compilerOptions, ...(notes ? { notes } : {}) }, sources.map(({ file, text }) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n',
     ignored.map(item => (item.file ?? '').slice(input.length + 1)));
   // Only stateless generation trusts the manifest. A watch session restores

@@ -90,7 +90,7 @@ test('tools/list describes every tool with an object input schema and annotation
   const client = connect(t, { root });
   const listed = await client.request('tools/list');
   const names = listed.result.tools.map(tool => tool.name);
-  assert.deepEqual(names, ['check', 'generate', 'inspect_project', 'inspect_message', 'explain_code', 'rename_message', 'find_unused']);
+  assert.deepEqual(names, ['check', 'generate', 'inspect_project', 'inspect_message', 'explain_code', 'rename_message', 'find_unused', 'find_hardcoded']);
   for (const tool of listed.result.tools) {
     assert.equal(tool.inputSchema.type, 'object', tool.name);
     assert.equal(tool.outputSchema.type, 'object', tool.name);
@@ -234,6 +234,15 @@ test('find_unused lists unreferenced IDs and unknown source references', async t
   assert.equal(result.unknownReferenceCount, 1);
   assert.equal(result.unknownReferences[0].code, 'UNKNOWN_MESSAGE_ID');
   assert.equal(result.unknownReferences[0].file, 'src/app.ts');
+});
+
+test('find_hardcoded lists UI text outside the catalog, read-only', async t => {
+  const root = await project(t, { 'src/app.tsx': "export const App = () => <main><h1>Hello</h1><p>Unsaved changes</p></main>;\n" });
+  const client = connect(t, { root });
+  const { structuredContent: result } = await client.tool('find_hardcoded', { high: true });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.findings.map(finding => [finding.file, finding.line, finding.text]), [['src/app.tsx', 1, 'Hello'], ['src/app.tsx', 1, 'Unsaved changes']]);
+  assert.equal(result.findingCount, 2);
 });
 
 test('a bad line gets a parse error with a null id and the server keeps going', async t => {

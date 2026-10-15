@@ -21,6 +21,11 @@ import {
   array of IDs and dotted `prefix.*` patterns, or `{ modules, exclude?, messages? }`
   to take the messages that the files `modules` matches, and their imports, name.
   See [scopes computed from code](../GUIDE.md#scopes-computed-from-code).
+- `text` — how `hardcoded` and `doctor` find UI text outside the catalog:
+  `exclude` (globs of source files to skip), `ignore` (exact text or
+  `/regular expressions/` to accept as is), and `attributes` and `calls` (more
+  attributes and functions whose value is UI text). See
+  [hardcoded text](../GUIDE.md#hardcoded-text).
 - `lockedKeys` and `ignoredKeys` — exact IDs or dotted `prefix.*` patterns for
   source-verbatim and excluded messages; overlap is rejected during validation.
 - `resolveKeyPolicy(id, options)` — return the validated lock/ignore decision

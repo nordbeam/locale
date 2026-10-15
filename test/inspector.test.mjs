@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileProject } from '../dist/compiler.js';
-import { createMessageInspector, mountInspectorOverlay } from '../dist/inspector.js';
+import { JSDOM } from 'jsdom';
+import { createMessageInspector, mountInspectorOverlay, scanRenderedText } from '../dist/inspector.js';
 
 async function messagesFor(catalog, extra = {}) {
   const project = compileProject({ baseLocale: 'en', catalogs: { en: catalog }, ...extra });
@@ -64,4 +65,48 @@ test('browser overlay subscribes, renders records, and disposes without browser 
   assert.equal(treeText(root).includes('product.price'), true);
   overlay.dispose();
   assert.equal(root.removed, true);
+});
+
+test('scanRenderedText reports page text that no message rendered', async () => {
+  const messages = await messagesFor({ title: 'Invoices', count: 'You have {n} invoices', search: 'Search' });
+  const inspector = createMessageInspector({ locale: 'en' });
+  const m = inspector.wrap(messages);
+  const { document } = new JSDOM(`<body><main>
+    <h1>${m.title()}</h1>
+    <p id="split"></p>
+    <p class="meta">${m.count({ n: 2 })} · 14:05</p>
+    <p>${m.count({ n: 3 })} · Updated today</p>
+    <form class="search"><input placeholder="${m.search()}"><input placeholder="Filter by customer"><input type="submit" value="Go"></form>
+    <button>Save</button>
+    <code>npm install</code><pre>Stack trace</pre>
+    <span translate="no">Nordbeam Cloud</span><span class="notranslate">Brand name</span>
+    <p data-nordbeam-locale-ignore>Debug only</p><p hidden>Not shown</p>
+    <p>42</p><p>LinkedIn</p><p>https://nordbeam.io</p>
+  </main></body>`).window;
+  // React renders "You have {n} invoices" as three text nodes: they are one run.
+  document.getElementById('split').append('You have ', '7', ' invoices');
+  m.count({ n: 7 });
+  const found = scanRenderedText(inspector, { root: document.body });
+  assert.deepEqual(found.map(finding => [finding.text, finding.attribute ?? '', finding.path]), [
+    ['You have 3 invoices · Updated today', '', 'main > p'],
+    ['Filter by customer', 'placeholder', 'main > form.search > input'],
+    ['Go', 'value', 'main > form.search > input'],
+    ['Save', '', 'main > button'],
+  ]);
+  assert.deepEqual(scanRenderedText(inspector, { root: document.body, ignore: ['Save', /^Filter/, 'Go', /Updated/] }), []);
+});
+
+test('the overlay finds hardcoded text on demand and outlines it', async () => {
+  const messages = await messagesFor({ title: 'Invoices' });
+  const inspector = createMessageInspector({ locale: 'en' });
+  const { document } = new JSDOM(`<body><h1>${inspector.wrap(messages).title()}</h1><button>Save</button></body>`).window;
+  const overlay = mountInspectorOverlay(inspector, { document });
+  const button = [...overlay.element.querySelectorAll('button')].find(item => item.textContent === 'Find hardcoded text');
+  button.click();
+  assert.match(overlay.element.textContent, /1 string on this screen did not come from a message/);
+  assert.match(overlay.element.textContent, /"Save"/);
+  const save = document.querySelector('body > button');
+  assert.equal(save.style.outline, '2px dashed #f59e0b');
+  overlay.dispose();
+  assert.equal(save.style.outline, '');
 });

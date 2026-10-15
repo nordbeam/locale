@@ -342,7 +342,7 @@ export async function inspectProject(options: GenerateOptions, configFile: strin
   // the recorded output is what these inputs would produce.
   const scoped = await resolveModuleScopes({ ...options, root }, baseFile ? [...base.keys()] : undefined)
     .catch(() => ({ scopes: staticScopes(options.scopes), computed: [] }));
-  const { persistentCache, ...compilerOptions } = { ...options, scopes: scoped.scopes, ...(scoped.computed.length ? { checkedScopes: scoped.computed } : {}) };
+  const { persistentCache, text, ...compilerOptions } = { ...options, scopes: scoped.scopes, ...(scoped.computed.length ? { checkedScopes: scoped.computed } : {}) };
   const notes = await readNotes(options).catch(() => undefined);
   const ignored = checked.warnings.filter(warning => warning.code === 'IGNORED_CATALOG_FILE').map(warning => (warning.file ?? '').slice(input.length + 1));
   const current = await inputDigest({ ...compilerOptions, ...(notes ? { notes } : {}) }, [...texts].map(([file, text]) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n', ignored);

@@ -341,6 +341,14 @@ A message is served from the base locale because the requested locale does not p
 
 **Fix:** Translate the message in the requested locale, or accept the base text as the fallback.
 
+### HARDCODED_TEXT
+
+Severity: warning.
+
+Source code renders UI text from a string literal instead of a catalog message, so every locale sees the same text. doctor reports a summary; hardcoded lists each string with its confidence.
+
+**Fix:** Run nordbeam-locale hardcoded --fix to reuse catalog messages with the same text, --extract to add new ones, or mark text that is not UI copy with a nordbeam-locale-ignore comment.
+
 ### I18NEXT_CONTEXT
 
 Severity: warning.
@@ -956,6 +964,14 @@ Severity: warning.
 SvelteKit hooks and locale switching are application boundaries that the migration does not rewrite.
 
 **Fix:** Set the locale in the SvelteKit hook by hand.
+
+### TEXT_SCANNER_UNAVAILABLE
+
+Severity: error.
+
+The text scanner needs oxc-parser, an optional dependency that is not installed for this platform, so source files could not be parsed.
+
+**Fix:** Install it with npm install --save-dev oxc-parser, then retry.
 
 ### THENABLE_KEY
 

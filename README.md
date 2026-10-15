@@ -341,6 +341,10 @@ covers moving from i18next, next-intl, FormatJS, Lingui, vue-i18n and others.
   locale, unused messages, namespaces, scopes, ICU features and the size of each
   generated catalog. `report --json` returns the same data. See
   [Project report](docs/GUIDE.md#project-report).
+- `npx nordbeam-locale hardcoded` finds UI text in the source that is not a
+  catalog message. `--fix` replaces text with the catalog message that renders
+  the same, `--extract` adds new messages, and both preview until `--write`. See
+  [Hardcoded text](docs/GUIDE.md#hardcoded-text).
 - `npx nordbeam-locale agent-guide` prints the protocol guide.
 - `npx nordbeam-locale capabilities --json` lists every command and its contract.
 - `npx nordbeam-locale verify --json` exits 0 only when `check` passes and the

@@ -75,10 +75,10 @@ h3 { margin: 22px 0 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .0
 .link.plain { color: inherit; }
 
 /* Summary */
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 12px; }
 .kpi { min-width: 0; padding: 16px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
 .kpi .label { color: var(--muted); font-size: 12.5px; font-weight: 500; }
-.kpi .value { margin-top: 6px; font-size: 28px; font-weight: 650; line-height: 1.15; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.kpi .value { margin-top: 6px; font-size: 26px; font-weight: 650; line-height: 1.15; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
 .kpi .sub { margin-top: 6px; color: var(--faint); font-size: 12.5px; overflow-wrap: anywhere; }
 .kpi .meter { display: flex; height: 4px; margin-top: 12px; overflow: hidden; border-radius: 2px; background: var(--soft); }
 .kpi .meter span { display: block; height: 100%; }
@@ -216,6 +216,9 @@ tr.detail td { padding: 2px 14px 16px; background: var(--soft); }
 .pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 12.5px; }
 .btn { height: 32px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); font-size: 13px; font-weight: 500; cursor: pointer; }
 .btn:hover { background: var(--soft); }
+.hard-table { max-height: min(60vh, 560px); }
+.hard-table td:first-child { min-width: 220px; }
+.htext { overflow-wrap: anywhere; }
 footer.wrap { padding-bottom: 40px; color: var(--faint); font-size: 12.5px; }
 
 @media (max-width: 640px) {
@@ -342,6 +345,10 @@ const script = String.raw`
   if (usage.unknown.length) problemParts.push(plural(usage.unknown.length, 'unknown ID'));
   if (sum.warnings) problemParts.push(plural(sum.warnings, 'warning'));
   kpi('Problems', n(problems), problemParts.join(' · ') || 'No errors or warnings', problems ? 'bad' : 'good');
+  var hard = data.hardcoded || { available: false, reason: 'This report has no text scan.', samples: [], areas: [], topFiles: [] };
+  kpi('Hardcoded text', hard.available ? n(hard.high) : '—',
+    !hard.available ? 'Needs oxc-parser' : hard.high ? plural(hard.files, 'file') + (hard.inCatalog ? ' · ' + n(hard.inCatalog) + ' match the catalog' : '') : 'All UI text is in the catalog',
+    hard.available ? (hard.high ? 'warn' : 'good') : '');
   kpi('Catalog download', sum.catalog ? bytes(sum.catalog.brotli) : '—', sum.catalog ? 'Full ' + project.baseLocale + ' catalog, brotli · ' + bytes(sum.catalog.raw) + ' raw' : 'Needs catalogs that compile');
 
   // Explorer state, shared with the charts that filter it.
@@ -626,6 +633,63 @@ const script = String.raw`
     }
   })();
 
+  // Text outside the catalog
+  (function () {
+    var root = fill('hardcoded-body');
+    if (!hard.available) { root.append(h('p', { class: 'empty' }, hard.reason || 'The text scan did not run.')); return; }
+    if (!hard.high) {
+      root.append(h('div', { class: 'ok-state' }, h('span', { class: 'icon' }, icon('M3.5 8.5l3 3 6-7', 18)),
+        h('div', null, h('b', null, 'No hardcoded UI text'), h('span', { class: 'muted' }, hard.medium ? plural(hard.medium, 'string') + ' might be UI text; nordbeam-locale hardcoded --confidence medium lists them.' : 'Every string the scan reads as UI text is a catalog message.'))));
+      return;
+    }
+    var left = h('div'), right = h('div');
+    root.append(h('div', { class: 'usage-grid' }, left, right));
+    left.append(h('div', { class: 'figures' },
+      h('div', { class: 'figure' }, h('i', { class: 'swatch', style: 'background:var(--same)' }), h('b', null, n(hard.high)), h('span', null, 'strings of UI text')),
+      h('div', { class: 'figure' }, h('i', { class: 'swatch', style: 'background:var(--faint)' }), h('b', null, n(hard.files)), h('span', null, (hard.files === 1 ? 'file' : 'files') + (hard.mixedFiles ? ', ' + n(hard.mixedFiles) + ' of them render messages too' : ', none of them render messages'))),
+      h('div', { class: 'figure' }, h('i', { class: 'swatch', style: 'background:var(--accent)' }), h('b', null, n(hard.inCatalog)), h('span', null, 'already a catalog message'))));
+    if (hard.areas.length) {
+      left.append(h('h3', null, 'Where it is'));
+      var areas = h('ul', { class: 'files' }), most = hard.areas[0].findings || 1;
+      hard.areas.slice(0, 8).forEach(function (a) {
+        areas.append(h('li', { style: '--w:' + (a.findings / most * 100) + '%', title: plural(a.files, 'file') }, h('span', { class: 'path' }, a.area + '/'), h('span', { class: 'count' }, n(a.findings))));
+      });
+      left.append(areas);
+    }
+    if (hard.topFiles.length) {
+      right.append(h('h3', null, 'Files with the most'));
+      var list = h('ul', { class: 'files' }), top = hard.topFiles[0].findings || 1;
+      hard.topFiles.slice(0, 8).forEach(function (f) {
+        list.append(h('li', { style: '--w:' + (f.findings / top * 100) + '%' }, h('span', { class: 'path', title: f.file }, f.file), h('span', { class: 'count' }, f.mixed ? h('span', { class: 'chip accent', title: 'This file renders catalog messages too' }, 'mixed') : null, ' ', n(f.findings))));
+      });
+      right.append(list);
+    }
+    var steps = [];
+    if (hard.inCatalog) steps.push(h('li', null, h('span', null, h('code', null, 'nordbeam-locale hardcoded --fix'), ' reuses the catalog message where the text already is one (' + plural(hard.inCatalog, 'string') + ')')));
+    steps.push(h('li', null, h('span', null, h('code', null, 'nordbeam-locale hardcoded --extract'), ' moves the rest into the base catalog')));
+    if (hard.medium) steps.push(h('li', null, h('span', null, h('code', null, 'nordbeam-locale hardcoded --confidence medium'), ' also lists ' + plural(hard.medium, 'string') + ' that might be UI text')));
+    root.append(h('div', { class: 'callout' }, h('ul', null, steps)));
+    if (!hard.samples.length) return;
+    var wrap = h('div', { class: 'table-wrap hard-table' }), body = h('tbody'), shownCount = 0;
+    wrap.append(h('table', null, h('thead', null, h('tr', null, h('th', null, 'Text'), h('th', null, 'Where'), h('th', null, 'File'))), body));
+    var pager = h('div', { class: 'pager' }), note = h('span'), more = h('button', { type: 'button', class: 'btn' }, 'Show more');
+    pager.append(note, more);
+    function page() {
+      hard.samples.slice(shownCount, shownCount + 25).forEach(function (sample) {
+        body.append(h('tr', null,
+          h('td', null, h('div', { class: 'htext' }, sample.text), sample.catalog ? h('div', { class: 'mid muted', title: 'The catalog message with this text' }, '= ' + sample.catalog) : null),
+          h('td', { class: 'used' }, sample.where),
+          h('td', { class: 'used' }, h('code', null, sample.file + ':' + sample.line))));
+      });
+      shownCount = Math.min(hard.samples.length, shownCount + 25);
+      note.textContent = 'Showing ' + n(shownCount) + ' of ' + n(hard.samples.length) + (hard.samples.length < hard.high ? ' examples · nordbeam-locale hardcoded lists all ' + n(hard.high) : '');
+      more.hidden = shownCount >= hard.samples.length;
+    }
+    more.onclick = page;
+    root.append(h('h3', null, 'Examples'), wrap, pager);
+    page();
+  })();
+
   // Diagnostics
   (function () {
     var root = fill('diagnostics-body');
@@ -778,7 +842,7 @@ export function renderReportPage(report: ProjectReport): string {
   <div class="pills" id="badges"></div>
 </div></header>
 <nav class="nav" aria-label="Sections"><div class="wrap">
-  <a href="#overview">Overview</a><a href="#coverage">Coverage</a><a href="#namespaces">Namespaces</a><a href="#sizes">Downloads</a><a href="#scopes">Scopes</a><a href="#usage">Usage</a><a href="#features">ICU</a><a href="#diagnostics">Diagnostics</a><a href="#explorer">Messages</a>
+  <a href="#overview">Overview</a><a href="#coverage">Coverage</a><a href="#namespaces">Namespaces</a><a href="#sizes">Downloads</a><a href="#scopes">Scopes</a><a href="#usage">Usage</a><a href="#hardcoded">Hardcoded</a><a href="#features">ICU</a><a href="#diagnostics">Diagnostics</a><a href="#explorer">Messages</a>
 </div></nav>
 <main class="wrap">
   <section class="kpis" id="overview" aria-label="Summary"></section>
@@ -800,6 +864,7 @@ export function renderReportPage(report: ProjectReport): string {
     <section class="card" id="scopes"><div class="card-head"><div><h2>Scopes</h2><p class="lede">Smaller catalogs for parts of the app, and what they save.</p></div></div><div id="scopes-list"></div></section>
   </div>
   <section class="card" id="usage"><div class="card-head"><div><h2>Source usage</h2><p class="lede">Which messages the code references, found by a static scan.</p></div></div><div id="usage-body"></div></section>
+  <section class="card" id="hardcoded"><div class="card-head"><div><h2>Text outside the catalog</h2><p class="lede">UI text written into the source instead of the catalog, so every locale sees it as written. High-confidence findings from nordbeam-locale hardcoded.</p></div></div><div id="hardcoded-body"></div></section>
   <div class="grid2">
     <section class="card" id="features"><div class="card-head"><div><h2>ICU features</h2><p class="lede">Messages in the base catalog by what they use. Click a feature to list its messages.</p></div></div><div id="features-chart"></div></section>
     <section class="card" id="diagnostics"><div class="card-head"><div><h2>Diagnostics</h2><p class="lede">What nordbeam-locale check reports for the catalogs.</p></div></div><div id="diagnostics-body"></div></section>

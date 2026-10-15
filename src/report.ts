@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
 import { sourceUsage } from './cli-tools.js';
-import { compileProject } from './compiler.js';
+import { CompileError, compileProject } from './compiler.js';
 import type { Catalog, CompiledProject, Diagnostic } from './compiler.js';
 import { describeCatalog } from './contracts.js';
 import type { MessageContract } from './contracts.js';
@@ -116,6 +116,25 @@ export interface ReportUsage {
   readonly copies: readonly { readonly file: string; readonly messages: number }[];
 }
 
+export interface ReportHardcoded {
+  /** False when the optional text scanner (oxc-parser) is not installed; `reason` says so. */
+  readonly available: boolean;
+  readonly reason?: string;
+  /** High-confidence findings: UI text in source that is not a catalog message. */
+  readonly high: number;
+  /** Findings that read like UI text but may not be; hardcoded --confidence medium lists them. */
+  readonly medium: number;
+  /** High-confidence findings whose text is already a catalog message, which hardcoded --fix can reuse. */
+  readonly inCatalog: number;
+  readonly files: number;
+  /** Of those files, the ones that already render catalog messages. */
+  readonly mixedFiles: number;
+  readonly areas: readonly { readonly area: string; readonly findings: number; readonly files: number }[];
+  readonly topFiles: readonly { readonly file: string; readonly findings: number; readonly mixed: boolean }[];
+  /** Up to 200 high-confidence findings, from the files with the most. */
+  readonly samples: readonly { readonly file: string; readonly line: number; readonly text: string; readonly where: string; readonly catalog?: string }[];
+}
+
 export interface ReportSummary {
   readonly messages: number;
   readonly locales: number;
@@ -152,6 +171,7 @@ export interface ProjectReport {
   readonly namespaces: readonly ReportNamespace[];
   readonly features: ReportFeatures;
   readonly usage: ReportUsage;
+  readonly hardcoded: ReportHardcoded;
   /** Generated sizes need a project that compiles; `reason` says why they are missing. */
   readonly sizes: { readonly available: boolean; readonly reason?: string; readonly shared?: ReportSize };
   readonly diagnostics: { readonly errors: readonly ReportDiagnostic[]; readonly warnings: readonly ReportDiagnostic[] };
@@ -263,6 +283,49 @@ async function packageInfo(root: string): Promise<{ name?: string; frameworks: s
 }
 
 /** Analyze catalogs, translation coverage, source usage, scopes and generated sizes without writing anything. */
+const noHardcoded = (reason: string): ReportHardcoded => ({ available: false, reason, high: 0, medium: 0, inCatalog: 0, files: 0, mixedFiles: 0, areas: [], topFiles: [], samples: [] });
+
+/** UI text outside the catalog, as hardcoded reports it, for the report page. */
+async function hardcodedReport(options: BuildReportOptions, path: (file: string) => string): Promise<ReportHardcoded> {
+  const { scanText, textArea } = await import('./text-scan.js');
+  let result;
+  try { result = await scanText(options); }
+  catch (error) {
+    if (error instanceof CompileError && error.diagnostics[0]?.code === 'TEXT_SCANNER_UNAVAILABLE') return noHardcoded('The text scan needs the optional dependency oxc-parser. Install it with npm install --save-dev oxc-parser.');
+    return noHardcoded(`The text scan failed: ${(error as Error).message.split('\n')[0]}`);
+  }
+  const high = result.findings.filter(finding => finding.confidence === 'high');
+  const byFile = new Map<string, typeof high>();
+  for (const finding of high) { let list = byFile.get(finding.file); if (!list) byFile.set(finding.file, list = []); list.push(finding); }
+  const areas = new Map<string, { findings: number; files: Set<string> }>();
+  for (const finding of high) {
+    const key = textArea(result.root, finding.file);
+    let area = areas.get(key);
+    if (!area) areas.set(key, area = { findings: 0, files: new Set() });
+    area.findings++; area.files.add(finding.file);
+  }
+  const files = [...byFile].sort((a, b) => b[1].length - a[1].length || compare(a[0], b[0]));
+  const samples: ReportHardcoded['samples'][number][] = [];
+  // Breadth first: a few from each file, so one long page does not fill the list.
+  for (let round = 0; samples.length < 200 && round < 50; round++) {
+    let added = false;
+    for (const [, list] of files) {
+      const finding = list[round];
+      if (!finding || samples.length >= 200) continue;
+      added = true;
+      samples.push({ file: path(finding.file), line: finding.line, text: finding.text.length > 160 ? `${finding.text.slice(0, 159)}…` : finding.text, where: finding.where, ...(finding.catalog?.exact ? { catalog: finding.catalog.id } : {}) });
+    }
+    if (!added) break;
+  }
+  return {
+    available: true, high: high.length, medium: result.findings.length - high.length, inCatalog: high.filter(finding => finding.catalog?.exact).length,
+    files: byFile.size, mixedFiles: files.filter(([, list]) => list[0]!.context === 'mixed').length,
+    areas: [...areas].sort((a, b) => b[1].findings - a[1].findings || compare(a[0], b[0])).slice(0, 12).map(([area, item]) => ({ area, findings: item.findings, files: item.files.size })),
+    topFiles: files.slice(0, 10).map(([file, list]) => ({ file: path(file), findings: list.length, mixed: list[0]!.context === 'mixed' })),
+    samples: samples.sort((a, b) => compare(a.file, b.file) || a.line - b.line),
+  };
+}
+
 export async function buildReport(options: BuildReportOptions, configFile: string, loaded?: Partial<GenerateOptions>): Promise<ProjectReport> {
   const root = resolve(options.root ?? '.');
   const path = (file: string): string => {
@@ -299,7 +362,7 @@ export async function buildReport(options: BuildReportOptions, configFile: strin
   if (!base.size) reason = `No messages in the base locale ${JSON.stringify(baseLocale)}.`;
   else {
     try {
-      const { root: _root, outDir: _outDir, catalogs: _catalogs, notes: _notes, scopes: _scopes, cache: _cache, persistentCache: _persistentCache, sourceDir: _sourceDir, ...compilerOptions } = options;
+      const { root: _root, outDir: _outDir, catalogs: _catalogs, notes: _notes, scopes: _scopes, cache: _cache, persistentCache: _persistentCache, sourceDir: _sourceDir, text: _text, ...compilerOptions } = options;
       project = compileProject({ ...compilerOptions, baseLocale, catalogs, development: false,
         ...(resolved.scopes ? { scopes: resolved.scopes } : {}), ...(resolved.computed.length ? { checkedScopes: resolved.computed } : {}), ...(notes ? { notes } : {}) });
     } catch (error) {
@@ -424,6 +487,7 @@ export async function buildReport(options: BuildReportOptions, configFile: strin
     namespaces: namespaces(ids, unusedSet, untranslated),
     features: counts,
     usage: { sourceFiles: scan.files.length, used: scan.files.length ? ids.length - unused.length : 0, unused, topFiles, unknown: scan.unknown.map(diagnostic), copies },
+    hardcoded: await hardcodedReport({ ...options, root }, path),
     sizes: { available: !!project, ...(reason ? { reason } : {}), ...(shared ? { shared: size(shared) } : {}) },
     diagnostics: { errors: inspected.diagnostics.errors.map(diagnostic), warnings: inspected.diagnostics.warnings.map(diagnostic) },
     messages,

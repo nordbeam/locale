@@ -2,7 +2,7 @@ import { CliError } from './error-codes.js';
 
 /** Command catalog, help text and typo suggestions. Kept free of subsystem
  * imports so `--help` and usage errors stay on the fastest startup path. */
-export const commandNames = ['generate', 'init', 'check', 'verify', 'export', 'import', 'rename', 'extract', 'prune', 'doctor', 'report', 'migrate', 'migrate-project', 'pseudo', 'inspect', 'schema', 'codemod', 'apply-plan', 'capabilities', 'agent-guide', 'explain', 'mcp', 'skills'] as const;
+export const commandNames = ['generate', 'init', 'check', 'verify', 'export', 'import', 'rename', 'extract', 'prune', 'doctor', 'hardcoded', 'report', 'migrate', 'migrate-project', 'pseudo', 'inspect', 'schema', 'codemod', 'apply-plan', 'capabilities', 'agent-guide', 'explain', 'mcp', 'skills'] as const;
 
 export const helpGroups: Readonly<Record<string, readonly [string, string][]>> = {
   Core: [
@@ -10,7 +10,7 @@ export const helpGroups: Readonly<Record<string, readonly [string, string][]>> =
     ['check', 'validate catalogs without writing output'], ['verify', 'check plus fresh generated output; the CI and agent gate'],
   ],
   Translation: [['export', 'export a locale as ICU-in-PO'], ['import', 'merge a reviewed PO translation']],
-  Refactoring: [['rename', 'rename a message ID in catalogs and source'], ['extract', 'add one source message to a catalog'], ['prune', 'report unreferenced base messages'], ['doctor', 'validate catalogs and report likely issues'], ['report', 'write an HTML page of coverage, usage, scopes and sizes']],
+  Refactoring: [['rename', 'rename a message ID in catalogs and source'], ['extract', 'add one source message to a catalog'], ['prune', 'report unreferenced base messages'], ['doctor', 'validate catalogs and report likely issues'], ['hardcoded', 'find UI text outside the catalog; --fix and --extract move it in'], ['report', 'write an HTML page of coverage, usage, scopes and sizes']],
   Migration: [['migrate', 'convert one catalog format (needs @nordbeam/locale-migrate)'], ['migrate-project', 'preview or apply a complete project migration (needs @nordbeam/locale-migrate)'], ['codemod', 'rewrite recognized source calls (needs @nordbeam/locale-migrate)']],
   Other: [['pseudo', 'generate a pseudo-locale catalog'], ['inspect', 'print a machine-readable project snapshot'], ['schema', 'write editor schemas'], ['capabilities', 'print the automation contract'], ['agent-guide', 'print the automation guide'], ['apply-plan', 'apply a reviewed codemod plan'], ['explain', 'explain an error or diagnostic code and its fix'], ['mcp', 'serve the agent tools over MCP on stdio'], ['skills', 'install the bundled agent skills into .claude/skills and .agents/skills']],
 };
@@ -50,7 +50,7 @@ export const optionHelp: Readonly<Record<string, readonly [value: string, text: 
   regenerate: ['', 'regenerate output after editing catalogs'],
   development: ['', 'generate development output with argument guards'],
   production: ['', 'generate production output without argument guards'],
-  strict: ['', 'fail on missing translations (codemod: on unresolved constructs)'],
+  strict: ['', 'fail on missing translations (codemod: on unresolved constructs; hardcoded: when any text is found)'],
   watch: ['', 'rebuild when catalog files change'],
   json: ['', 'print one JSON document'],
   ndjson: ['', 'print newline-delimited JSON events'],
@@ -63,6 +63,9 @@ export const optionHelp: Readonly<Record<string, readonly [value: string, text: 
   target: ['<claude|agents|all>', 'where to install skills: .claude/skills, .agents/skills, or both (default: all)'],
   skill: ['<name>', 'install only this skill (repeatable; default: every bundled skill)'],
   open: ['', 'open the written page in the default browser'],
+  fix: ['', 'replace text that matches a catalog message with that message (preview; --write applies)'],
+  extract: ['', 'also add the remaining text as new base-catalog messages (preview; --write applies)'],
+  confidence: ['<high|medium>', 'lowest confidence to report (default: medium, every finding; high with --extract)'],
 };
 
 /** Options each command accepts, in display order. */
@@ -77,6 +80,7 @@ const commandOptions: Readonly<Record<string, readonly string[]>> = {
   extract: ['config', 'catalogs', 'id', 'message', 'locale', 'regenerate', 'json'],
   prune: ['config', 'catalogs', 'source-dir', 'dry-run', 'json'],
   doctor: ['config', 'catalogs', 'source-dir', 'limit', 'only', 'summary', 'json', 'ndjson'],
+  hardcoded: ['config', 'catalogs', 'source-dir', 'confidence', 'fix', 'extract', 'write', 'regenerate', 'strict', 'limit', 'json'],
   report: ['config', 'catalogs', 'source-dir', 'out', 'open', 'limit', 'json'],
   migrate: ['from', 'format', 'locale', 'out', 'notes', 'dry-run', 'json', 'ndjson'],
   'migrate-project': ['from', 'format', 'catalog-format', 'framework', 'config', 'catalogs', 'locale', 'source-dir', 'messages-object', 'message-id-map', 'custom-call', 'initial-locale-expression', 'strict', 'write', 'development', 'production', 'json', 'ndjson'],
@@ -104,6 +108,7 @@ const commandUsage: Readonly<Record<string, readonly [usage: string, examples: r
   extract: ['nordbeam-locale extract --id <message.id> --message <text> [options]', ['nordbeam-locale extract --id cart.empty --message "Your cart is empty"']],
   prune: ['nordbeam-locale prune [options]', ['nordbeam-locale prune --dry-run --json']],
   doctor: ['nordbeam-locale doctor [options]', ['nordbeam-locale doctor --ndjson']],
+  hardcoded: ['nordbeam-locale hardcoded [options]', ['nordbeam-locale hardcoded', 'nordbeam-locale hardcoded --fix --write', 'nordbeam-locale hardcoded --extract --source-dir app', 'nordbeam-locale hardcoded --strict --confidence high --json']],
   report: ['nordbeam-locale report [options]', ['nordbeam-locale report --open', 'nordbeam-locale report --source-dir app --out reports/i18n.html', 'nordbeam-locale report --json']],
   migrate: ['nordbeam-locale migrate --from <file> --format <format> [options]', ['nordbeam-locale migrate --from legacy.json --format i18next --out messages/en.json --dry-run', 'nordbeam-locale migrate --from src/i18n/en.ts --format module --out messages/en.json --notes messages.notes.json']],
   'migrate-project': ['nordbeam-locale migrate-project --from <dir> --format <format> [options]', ['nordbeam-locale migrate-project --from src/messages --format gettext --write']],

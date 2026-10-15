@@ -42,6 +42,9 @@ Every tool returns structured content. The text content holds the same JSON, for
 | `explain_code` | yes | `code` (required) | `severity`, `explanation`, `fix`, `docs`, `exitCode` when set |
 | `rename_message` | no (destructive) | `from`, `to` (required), `regenerate` (default `true`) | `locales`, `changed` paths, `regenerated`, `generated`, `stale`, `next` |
 | `find_unused` | yes | `limit` (default 50) | `ok`, `unused` IDs, `unusedCount`, `unknownReferences`, `unknownReferenceCount` |
+| `find_hardcoded` | yes | `limit` (default 50), `high` (default `false`) | `ok`, `sourceFiles`, `summary` counts, `findings` with `file`, `line`, `column`, `text`, `confidence`, `where`, `reason`, `catalog`, `translations`, and `findingCount` |
+
+`find_hardcoded` needs the optional dependency `oxc-parser`; without it the call fails with `TEXT_SCANNER_UNAVAILABLE`. It only reads. To change source, run `nordbeam-locale hardcoded --fix` or `--extract`, which preview until `--write`.
 
 A diagnostic in `check`, `find_unused` or a failure carries `code`, `message`, `locale`, `messageId`, `file`, `line`, `column`, `hint`, `fix` and `docs` where they apply. `fix` and `docs` come from the [error code registry](errors.md).
 

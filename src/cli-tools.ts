@@ -63,6 +63,18 @@ export interface DoctorResult {
   catalogFiles: string[];
   sourceFiles: number;
   unused: string[];
+  /** UI text outside the catalog, when the optional text scanner (oxc-parser) is installed. */
+  hardcoded?: DoctorHardcoded;
+}
+
+export interface DoctorHardcoded {
+  /** High-confidence findings; medium ones are listed by the hardcoded command only. */
+  high: number;
+  medium: number;
+  /** High-confidence findings whose text is already a catalog message, which hardcoded --fix can reuse. */
+  inCatalog: number;
+  files: number;
+  areas: Array<{ area: string; findings: number }>;
 }
 
 export interface PseudoOptions extends GenerateOptions {
@@ -527,6 +539,76 @@ export async function extractMessage(options: ExtractOptions): Promise<ExtractRe
   return { changed, references: [], ids: [options.id], warnings: [], ...(await refreshOutput(options, changed.length > 0)) };
 }
 
+export interface TextFixResult extends RegenerationStatus {
+  /** Files written: catalogs and sources. */
+  changed: string[];
+  /** Messages added to the base catalog, and the locales that got an inline translation too. */
+  added: Array<{ id: string; locales: string[] }>;
+  /** Source spans replaced with message calls. */
+  replaced: number;
+  warnings: Diagnostic[];
+}
+
+/** Add a message where a person would: flat catalogs keep flat keys, nested ones nest, and a new
+ * key follows the last key of its namespace instead of landing at the end of the file. */
+function insertMessage(catalog: Catalog, id: string, text: string): void {
+  const parts = id.split('.'), prefix = id.slice(0, id.lastIndexOf('.') + 1);
+  const nested = parts.length > 1 && own(catalog, parts[0]!) && typeof catalog[parts[0]!] === 'object';
+  const flat = !nested && Object.keys(catalog).some(key => key.includes('.'));
+  if (!flat && parts.length > 1) { setAt(catalog, parts, text); return; }
+  if (own(catalog, id)) fail('MESSAGE_ALREADY_EXISTS', `Message ID ${JSON.stringify(id)} already exists.`);
+  const entries = Object.entries(catalog);
+  let at = -1;
+  if (prefix) entries.forEach(([key], index) => { if (key.startsWith(prefix)) at = index; });
+  if (at === -1 || at === entries.length - 1) { Object.defineProperty(catalog, id, { value: text, enumerable: true, writable: true, configurable: true }); return; }
+  for (const [key] of entries) delete catalog[key];
+  entries.splice(at + 1, 0, [id, text]);
+  for (const [key, value] of entries) Object.defineProperty(catalog, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/**
+ * Write a planned hardcoded-text fix: new messages into the base catalog (and inline translations
+ * into their locales), then the source edits. Everything is validated first and written together.
+ */
+export async function applyTextFixes(options: RefactorOptions & { regenerate?: boolean }, plan: {
+  edits: ReadonlyArray<{ file: string; line: number; start: number; end: number; before: string; after: string }>;
+  messages: ReadonlyArray<{ id: string; text: string; translations?: Readonly<Record<string, string>> }>;
+}): Promise<TextFixResult> {
+  const input = await loadCatalogs(options);
+  const base = input.catalogs[options.baseLocale];
+  if (!base) fail('BASE_LOCALE_MISSING', `No catalog for base locale ${JSON.stringify(options.baseLocale)}.`, { file: input.directory });
+  const changes = new Map<string, { catalog: Catalog; source: string }>();
+  const added: Array<{ id: string; locales: string[] }> = [];
+  for (const message of plan.messages) {
+    assertId(message.id, 'The message ID');
+    const locales: string[] = [];
+    for (const file of input.files) {
+      const text = file.locale === options.baseLocale ? message.text : message.translations?.[file.locale];
+      if (text === undefined) continue;
+      if (getLeaf(file.catalog, message.id, file.locale)) fail('MESSAGE_ALREADY_EXISTS', `Message ID ${JSON.stringify(message.id)} already exists in ${file.locale}.`, { file: file.file });
+      insertMessage(file.catalog, message.id, text);
+      changes.set(file.file, { catalog: file.catalog, source: file.text });
+      locales.push(file.locale);
+    }
+    added.push({ id: message.id, locales });
+  }
+  const checked = validate(options, input.catalogs);
+  const outputs = new Map<string, string>();
+  for (const [file, value] of changes) { const output = serialize(value.catalog, value.source); if (output !== value.source) outputs.set(file, output); }
+  const byFile = new Map<string, Array<{ file: string; line: number; start: number; end: number; before: string; after: string }>>();
+  for (const edit of plan.edits) { let list = byFile.get(edit.file); if (!list) byFile.set(edit.file, list = []); list.push(edit); }
+  for (const [file, edits] of byFile) {
+    let output = await readFile(file, 'utf8');
+    for (const edit of [...edits].sort((a, b) => b.start - a.start || b.end - a.end)) {
+      if (output.slice(edit.start, edit.end) !== edit.before) fail('STALE_PLAN', `${file}:${edit.line} changed after the fix was planned. Run the command again.`, { file });
+      output = output.slice(0, edit.start) + edit.after + output.slice(edit.end);
+    }
+    outputs.set(file, output);
+  }
+  const changed = await writeFilesTransaction(outputs);
+  return { changed, added, replaced: plan.edits.filter(edit => edit.before).length, warnings: checked.warnings, ...(await refreshOutput(options, changes.size > 0 && changed.length > 0)) };
+}
+
 /** Report catalog IDs absent from statically recognizable source usage. */
 export async function pruneMessages(options: RefactorOptions & { dryRun?: boolean }): Promise<PruneResult> {
   // Prune is intentionally report-only, so the default is already safe. Keep
@@ -556,6 +638,25 @@ export async function sourceUsage(options: RefactorOptions, ids: readonly string
   return { files: scan.files, usage: scan.usage, unknown: scan.unknown };
 }
 
+/** The text scan, summarized for doctor. Without the optional parser doctor leaves it out. */
+async function hardcodedSummary(options: RefactorOptions): Promise<DoctorHardcoded | undefined> {
+  const { scanText, textArea } = await import('./text-scan.js');
+  let result;
+  try { result = await scanText(options); }
+  catch (error) { if (error instanceof CompileError && error.diagnostics[0]?.code === 'TEXT_SCANNER_UNAVAILABLE') return undefined; throw error; }
+  const high = result.findings.filter(finding => finding.confidence === 'high');
+  const areas = new Map<string, number>(), files = new Set<string>();
+  for (const finding of high) {
+    files.add(finding.file);
+    const area = textArea(result.root, finding.file);
+    areas.set(area, (areas.get(area) ?? 0) + 1);
+  }
+  return {
+    high: high.length, medium: result.findings.length - high.length, inCatalog: high.filter(finding => finding.catalog?.exact).length, files: files.size,
+    areas: [...areas].filter(([, findings]) => findings).sort((a, b) => b[1] - a[1] || compare(a[0], b[0])).slice(0, 10).map(([area, findings]) => ({ area, findings })),
+  };
+}
+
 /** Validate the project and provide a compact inventory useful in editors/CI. */
 export async function doctor(options: RefactorOptions): Promise<DoctorResult> {
   let checked;
@@ -573,7 +674,12 @@ export async function doctor(options: RefactorOptions): Promise<DoctorResult> {
     const unused = source.files.length === 0 ? [] : ids.filter(id => !source.ids.has(id)).sort(compare);
     errors.push(...source.unknown);
     if (unused.length) warnings.push({ code: 'UNUSED_MESSAGE', message: `${unused.length} base-catalog message${unused.length === 1 ? '' : 's'} are not referenced by statically recognizable source calls.`, hint: 'Use --source-dir to include the application source or keep dynamic keys explicit.' });
-    checked = { ok: errors.length === 0, errors, warnings, locales: input.files.map(file => file.locale), messageCount: ids.length, catalogFiles: input.files.map(file => file.file), sourceFiles: source.files.length, unused };
+    const hardcoded = source.files.length ? await hardcodedSummary(options) : undefined;
+    if (hardcoded?.high) {
+      const areas = hardcoded.areas.slice(0, 3).map(area => `${area.area} (${area.findings})`).join(', ');
+      warnings.push({ code: 'HARDCODED_TEXT', message: `${hardcoded.high} string${hardcoded.high === 1 ? '' : 's'} of UI text in ${hardcoded.files} source file${hardcoded.files === 1 ? '' : 's'} ${hardcoded.high === 1 ? 'is' : 'are'} not catalog messages${areas ? `, most in ${areas}` : ''}.`, hint: hardcoded.inCatalog ? `Run nordbeam-locale hardcoded to list them; ${hardcoded.inCatalog} already match a catalog message.` : 'Run nordbeam-locale hardcoded to list them.' });
+    }
+    checked = { ok: errors.length === 0, errors, warnings, locales: input.files.map(file => file.locale), messageCount: ids.length, catalogFiles: input.files.map(file => file.file), sourceFiles: source.files.length, unused, ...(hardcoded ? { hardcoded } : {}) };
   } catch (error) {
     const diagnostics = error instanceof CompileError ? [...error.diagnostics] : [{ code: 'DOCTOR_ERROR', message: (error as Error).message }];
     checked = { ok: false, errors: diagnostics, warnings: [], locales: [], messageCount: 0, catalogFiles: [], sourceFiles: 0, unused: [] };

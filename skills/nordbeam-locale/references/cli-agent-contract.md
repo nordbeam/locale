@@ -39,6 +39,7 @@ Result fields: `root` (absolute project root; every other path is project-relati
 - `inspect --json` is a read-only snapshot (config, catalogs with counts, generated ownership, detected integrations, diagnostics). `inspect --id <message-id> --json` describes one message across locales: present, missing, untranslated, arguments, and the file/line/column of each locale's source; an unknown ID is `UNKNOWN_MESSAGE_ID` with a `suggestion`.
 - `doctor --json` adds source-usage findings such as `UNUSED_MESSAGE`, scanning `--source-dir` (default `src`). `prune --dry-run --json` lists base messages with no statically recognisable reference and never deletes; dynamic keys cannot be proven by a static scan, so review before removing anything.
 - `report --json` returns translation coverage per locale (`translated`, `same`, `blank`, `missing`, `extra`, `coverage`), `namespaces`, `scopes`, ICU `features`, `usage` (`used`, `unused`, `topFiles`, `unknown`, `copies`), generated catalog `sizes` per locale and scope (raw, gzip, brotli; `sizes.available` is false with a `reason` when the project does not compile), `diagnostics` and one `messages` row per ID. `messages`, `usage.unused` and the diagnostic lists are capped by `--limit`. Without `--json`, or with `--out <file>`, it writes a self-contained HTML page (default `nordbeam-locale-report.html`); `--open` opens it. It changes nothing else.
+- `hardcoded --json` lists UI text in the source that is not a catalog message: `findings[]` with `file`, `line`, `column`, `text`, `kind`, `where`, `confidence` (`high` or `medium`), `reason` and, for inline translations, `translations` per locale. `summary` counts findings, high and medium ones, text already in the catalog, and files per area; `learned` lists positions that receive messages elsewhere; `ignored` counts what was left out and why. `--confidence high` reports only high-confidence findings. `--strict` exits 1 when any finding remains. It needs the optional dependency `oxc-parser`; without it the command fails with `TEXT_SCANNER_UNAVAILABLE`.
 
 ## Commands that change files
 
@@ -53,8 +54,9 @@ Result fields: `root` (absolute project root; every other path is project-relati
 | `pseudo --locale en-XA [--from-locale L] [--expansion N] [--update] [--dry-run]` | Creates a pseudo-locale; `--update` replaces an existing one | `--dry-run` |
 | `schema [--schema-dir D]` | Writes editor JSON schemas (default `.nordbeam`) | none: idempotent |
 | `skills install` | Installs the bundled agent skills into the project | `--dry-run` |
+| `hardcoded --fix\|--extract [--write] [--regenerate]` | `--fix` replaces hardcoded text with a catalog message that renders the same, adding the translator hook and its import where the file already calls hooks; `--extract` also adds new base messages (high confidence by default) | without `--write`: `plan` lists `edits`, `messages` and `skipped` with a reason each |
 
-`rename` and `extract` report `stale: true` with `next: "nordbeam-locale generate"` unless `--regenerate` is passed. After `extract`, other locales still lack the key: translate them, or accept `FALLBACK_MESSAGE` warnings.
+`rename`, `extract` and `hardcoded --write` report `stale: true` with `next: "nordbeam-locale generate"` unless `--regenerate` is passed. After `extract`, other locales still lack the key: translate them, or accept `FALLBACK_MESSAGE` warnings.
 
 Migration commands (`migrate`, `migrate-project`, `codemod`, `apply-plan`) are covered in the `nordbeam-locale-migrate` skill and need `@nordbeam/locale-migrate` at the same version.
 

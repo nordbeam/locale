@@ -5,7 +5,7 @@ import test from 'node:test';
 import { CliError, errorCodes, exitCodes } from '../dist/error-codes.js';
 
 // Quoted uppercase words that are not package codes: Node error names and signals, and short literals.
-const notCodes = new Set(['ERR_MODULE_NOT_FOUND', 'EEXIST', 'ENOENT', 'ESRCH', 'ICU', 'ID', 'LL', 'NEXT_LOCALE', 'SIGINT', 'SIGTERM', 'T', 'TS']);
+const notCodes = new Set(['ERR_MODULE_NOT_FOUND', 'EEXIST', 'ENOENT', 'ENOTDIR', 'ESRCH', 'ICU', 'ID', 'JSX', 'LL', 'NEXT_LOCALE', 'NFD', 'SIGINT', 'SIGTERM', 'T', 'TS']);
 
 async function sourceCodes() {
   const codes = new Set();

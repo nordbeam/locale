@@ -41,7 +41,7 @@ export function usageError(message: string, details: Record<string, unknown> = {
 
 const warningCodes = new Set([
   'EMPTY_SCOPE_PATTERN', 'UNKNOWN_NOTE', 'MISSING_MESSAGE', 'FALLBACK_MESSAGE', 'MISSING_PLURAL_CATEGORY', 'DROPPED_RICH_TAG', 'IGNORED_CATALOG_FILE',
-  'CONFIG_DEVELOPMENT_IGNORED', 'SELECTION_FALLBACK', 'MISSING_MESSAGES_BINDING', 'RENAME_DYNAMIC_REFERENCE', 'UNUSED_MESSAGE',
+  'CONFIG_DEVELOPMENT_IGNORED', 'SELECTION_FALLBACK', 'MISSING_MESSAGES_BINDING', 'RENAME_DYNAMIC_REFERENCE', 'UNUSED_MESSAGE', 'HARDCODED_TEXT',
   'DOTTED_SOURCE_ID', 'LINGUI_COMPILED_ENTRY', 'I18NEXT_CONTEXT', 'I18NEXT_FORMATTER', 'I18NEXT_NESTING', 'I18NEXT_TRANS_INDEX',
   'MIGRATION_INTERPOLATION_REVIEW', 'MIGRATION_LITERAL_BRACE', 'MIGRATION_LOCALE_REQUIRED', 'MIGRATION_MESSAGE_FIELD', 'MIGRATION_METADATA_DROPPED',
   'MIGRATION_ORDINAL_ID', 'MIGRATION_PRINTF_PLACEHOLDER', 'MIGRATION_UNESCAPED_INTERPOLATION', 'MIGRATION_UNPAIRED_PLURAL',
@@ -129,6 +129,8 @@ const definitions: Record<string, [explanation: string, fix: string, exitCode?: 
   SELECTION_FALLBACK: ['The Vite integration could not select a locale for a module and used the fallback.', 'Set the selection expression or the initial locale so that every module resolves a locale.'],
   MISSING_MESSAGES_BINDING: ['A rewritten source file calls the generated messages object without binding it first.', 'Import or bind the messages object in that file, or pass --messages-import to codemod, with --messages-hook when that module exports a hook such as useMessages.'],
   RENAME_DYNAMIC_REFERENCE: ['A dynamic key may refer to the message being renamed, and rename cannot rewrite it.', 'Update that dynamic reference by hand, then run check.'],
+  HARDCODED_TEXT: ['Source code renders UI text from a string literal instead of a catalog message, so every locale sees the same text. doctor reports a summary; hardcoded lists each string with its confidence.', 'Run nordbeam-locale hardcoded --fix to reuse catalog messages with the same text, --extract to add new ones, or mark text that is not UI copy with a nordbeam-locale-ignore comment.'],
+  TEXT_SCANNER_UNAVAILABLE: ['The text scanner needs oxc-parser, an optional dependency that is not installed for this platform, so source files could not be parsed.', 'Install it with npm install --save-dev oxc-parser, then retry.'],
   UNUSED_MESSAGE: ['A base-catalog message is not referenced by any statically recognizable source call. Dynamic keys can make this a false positive.', 'Delete the message if it is unused. Keep it if it is referenced dynamically.'],
   DOCTOR_ERROR: ['doctor could not finish inspecting the project. The message says which step failed.', 'Fix the reported input, then run doctor again.'],
   DUPLICATE_KEY: ['A message key is defined more than once, so only the last value would be used.', 'Keep one definition of the key and delete the other.'],

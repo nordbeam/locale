@@ -128,7 +128,7 @@ test('report writes a self-contained page; the embedded data cannot close its sc
   const dom = new JSDOM(html, { runScripts: 'dangerously' });
   const { document } = dom.window;
   assert.equal(dom.window.pwned, undefined);
-  assert.equal(document.querySelectorAll('.kpi').length, 6);
+  assert.equal(document.querySelectorAll('.kpi').length, 7);
   assert.equal(document.querySelector('.kpi .value').textContent, '8');
   assert.equal(document.querySelectorAll('#table-body tr.msg').length, 8);
   assert.equal(document.querySelectorAll('#coverage-chart .bar-row').length, 1);
@@ -192,5 +192,27 @@ test('the page renders a project with only the base locale and no source files',
   assert.match(document.getElementById('usage-body').textContent, /No source files found/);
   assert.match(document.getElementById('scopes-list').textContent, /No scopes configured/);
   assert.equal(document.querySelectorAll('#table-body tr.msg').length, 1);
+  dom.window.close();
+});
+
+test('the report lists UI text outside the catalog, and the page shows it', async t => {
+  const root = await project(t);
+  await writeFile(join(root, 'src/pages/settings.tsx'), "export function Settings() {\n  return <section><h1>Account settings</h1><button>Welcome home</button></section>;\n}\n");
+  const report = await buildReport({ ...await load(root), root }, join(root, 'nordbeam-locale.config.json'));
+  const { hardcoded } = report;
+  assert.equal(hardcoded.available, true);
+  assert.deepEqual({ high: hardcoded.high, inCatalog: hardcoded.inCatalog, files: hardcoded.files, mixedFiles: hardcoded.mixedFiles }, { high: 2, inCatalog: 1, files: 1, mixedFiles: 0 });
+  assert.deepEqual(hardcoded.areas, [{ area: 'src/pages', findings: 2, files: 1 }]);
+  assert.deepEqual(hardcoded.samples.map(sample => [sample.file, sample.line, sample.text, sample.catalog]), [
+    ['src/pages/settings.tsx', 2, 'Account settings', undefined],
+    ['src/pages/settings.tsx', 2, 'Welcome home', 'home.title'],
+  ]);
+  const dom = new JSDOM(renderReportPage(report), { runScripts: 'dangerously' });
+  const { document } = dom.window;
+  const body = document.getElementById('hardcoded-body').textContent;
+  assert.match(body, /Account settings/);
+  assert.match(body, /= home\.title/);
+  assert.match(body, /hardcoded --fix/);
+  assert.match(document.getElementById('overview').textContent, /Hardcoded text2/);
   dom.window.close();
 });

@@ -345,6 +345,31 @@ export const mcpTools: McpTool[] = [
       };
     },
   },
+  {
+    name: 'find_hardcoded',
+    title: 'Find hardcoded UI text',
+    description: 'List UI text in source files that is not a catalog message, with its confidence and, when the catalog already has the same text, that message ID. Needs the optional oxc-parser. To move the text into the catalog, run nordbeam-locale hardcoded --fix (reuse) or --extract (add), which preview until --write.',
+    inputSchema: schema({ limit: limitProperty(50), high: { type: 'boolean', description: 'Only high-confidence findings. Default false.', default: false } }),
+    outputSchema: output({ ok: bool, sourceFiles: int, summary: { type: 'object' }, findings: diagnostics, findingCount: int }),
+    annotations: annotations(true, false, true),
+    async run(args, context) {
+      const { options, root } = await loadProject(context);
+      const { scanText } = await import('./text-scan.js');
+      const limit = limitOf(args, 50);
+      const result = await scanText(options);
+      const findings = args.high ? result.findings.filter(finding => finding.confidence === 'high') : result.findings;
+      return {
+        ok: true,
+        sourceFiles: result.sourceFiles,
+        summary: { high: result.summary.high, medium: result.summary.medium, inCatalog: result.summary.inCatalog, mixedFiles: result.summary.mixedFiles, unlocalizedFiles: result.summary.unlocalizedFiles },
+        findings: findings.slice(0, limit).map(finding => ({
+          file: projectPath(finding.file, root), line: finding.line, column: finding.column, text: finding.text, confidence: finding.confidence, where: finding.where, reason: finding.reason,
+          ...(finding.catalog ? { catalog: finding.catalog } : {}), ...(finding.translations ? { translations: finding.translations } : {}),
+        })),
+        findingCount: findings.length,
+      };
+    },
+  },
 ];
 
 async function callTool(tool: McpTool, args: Record<string, unknown>, context: ToolContext) {

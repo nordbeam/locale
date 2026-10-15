@@ -16,11 +16,30 @@ out in this file.
   searchable table of every message. `--open` opens it, `--out` names the file,
   and `--json` returns the same data for scripts and agents. See
   [Project report](docs/GUIDE.md#project-report).
+- **Hardcoded text.** `nordbeam-locale hardcoded` finds UI text in the source
+  that is not a catalog message, in JSX, Vue and Svelte templates, attributes,
+  props, toasts and the helpers that feed them. It learns from the project:
+  positions that receive messages elsewhere, inline translations such as
+  `locale === "en" ? "Save" : "Spara"` and `{ sv, en }` objects, and text that
+  is the same in every catalog. Each finding has a confidence and a reason.
+  `--fix` replaces text with the catalog message that renders the same, adding
+  the translator hook and its import where needed; `--extract` adds new
+  messages; both preview until `--write`. Ignore comments, ESLint
+  `i18next/no-literal-string` comments and a new `text` configuration key mark
+  what to leave alone. Projects with more than a few dozen files are scanned
+  on worker threads, and `persistentCache` reuses results for unchanged files.
+  It uses `oxc-parser`, a new optional dependency. See
+  [Hardcoded text](docs/GUIDE.md#hardcoded-text).
+- `doctor` reports hardcoded text as the `HARDCODED_TEXT` warning, `report`
+  adds a section for it, and the MCP server adds a `find_hardcoded` tool.
+- The development inspector checks the page for text no message rendered:
+  `scanRenderedText(inspector)`, and a "Find hardcoded text" button in the
+  overlay that outlines it. This covers text from an API or a CMS that the
+  static scan cannot see.
 - The source scan behind `doctor`, `prune` and `rename` skips regular
   expression literals. It used to read the `m` flag in `/…/m.test(s)` as the
   messages object and report an unknown message ID, and a quote inside a
   regular expression could hide the rest of the line from the scan.
-
 ## 0.3.0
 
 Breaking changes, all in the TanStack Start adapter: a `hydrate` router option

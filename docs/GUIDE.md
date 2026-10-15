@@ -643,6 +643,100 @@ capped like other reports, with `--limit`. When the catalogs do not compile, the
 report still covers them, without the sizes. Add the file to `.gitignore` if you
 generate it in the project.
 
+### Hardcoded text
+
+`hardcoded` finds UI text in the source that is not a catalog message: text that
+every locale sees as written. It needs the optional dependency `oxc-parser`,
+which npm installs with the package unless optional dependencies are omitted.
+
+```sh
+npx nordbeam-locale hardcoded
+npx nordbeam-locale hardcoded --fix            # preview reusing catalog messages
+npx nordbeam-locale hardcoded --fix --write    # apply it
+npx nordbeam-locale hardcoded --extract --write
+npx nordbeam-locale hardcoded --strict --confidence high --json
+```
+
+It parses `.js`, `.jsx`, `.ts`, `.tsx`, `.vue` and `.svelte` files under `src/`,
+`app/`, `pages/`, `components/`, `lib/` and `routes/` (or `--source-dir`), and
+skips tests, stories, fixtures, mocks and generated files. A finding is text in
+a position that shows it: JSX text and expressions, Vue and Svelte templates,
+attributes such as `placeholder`, `title`, `alt` and `aria-label`, props and
+object keys such as `label` and `description`, calls such as `toast()` and
+`alert()`, `document.title =`, and returns of helpers whose result is rendered.
+Text next to a value is one finding with a placeholder: `You have {count}
+invoices`.
+
+Two signals come from the project itself:
+
+- **Positions that receive messages elsewhere.** When a prop, call argument or
+  key receives catalog messages in three or more places, plain text in the same
+  position is reported too. `hardcoded --json` lists these under `learned`.
+- **Inline translations.** `locale === "en" ? "Save" : "Spara"`, `isSwedish ?
+  … : …` and `{ sv: "Spara", en: "Save" }` hold a message and its translations.
+  They are one finding, with both texts, and `--extract` keeps both.
+
+Each finding is `high` or `medium` confidence. High is text in a position that
+shows it; medium is text that reads as UI text in a position that may not, such
+as a sentence returned from a helper, a map of display labels, or a prop that
+only sometimes holds text. Code is not text: class names, URLs, paths, IDs,
+formats, locale tags, CSS values, brand names such as `GitHub`, company names
+such as `Acme AB`, and text that is the same in every catalog are left out, as
+is everything inside `<code>`, `<pre>`, `<Trans>` and elements marked
+`translate="no"`, `class="notranslate"` or `data-nordbeam-locale-ignore`.
+
+`--fix` replaces text whose catalog message renders exactly the same, in the
+base locale and in every locale an inline translation spells out. It prefers a
+message from the namespace the file already uses, then the same feature (named
+by the file's folder), then a shared namespace such as `common`; a message that
+belongs to an unrelated feature is not reused, because its translators may
+change it for that context. When a component has no translator in scope but the
+file already calls hooks, the fix adds `const t = useT();` (the hook the rest of
+the project uses) and its import. `--extract` also adds new messages to the base
+catalog, in the file's namespace, and defaults to high-confidence findings.
+Without `--write` both print the edits and change nothing. The plan lists what
+it leaves alone and why: no binding in scope, a match only in another locale,
+another feature's message, or text defined away from where it renders.
+
+To keep text as it is, mark it. A comment at the end of a line covers that
+line; a comment on a line of its own covers the next statement, element or
+property, and nothing after it:
+
+```tsx
+const label = 'Beta'; // nordbeam-locale-ignore
+
+{/* nordbeam-locale-ignore */}
+<p>Version 2 preview</p>
+```
+
+A `nordbeam-locale-ignore-file` comment skips a file. ESLint comments for
+`i18next/no-literal-string` work as they do in ESLint: `eslint-disable-line` and
+`eslint-disable-next-line` cover one line, and `eslint-disable` covers
+everything up to its `eslint-enable`. For the whole project, use the `text` key
+in the configuration:
+
+```json
+{
+  "text": {
+    "exclude": ["src/legacy/**"],
+    "ignore": ["Beta", "/^v\\d+/"],
+    "attributes": ["tooltip"],
+    "calls": ["notify"]
+  }
+}
+```
+
+`exclude` takes globs relative to the project root, `ignore` takes exact text or
+`/regular expressions/`, and `attributes` and `calls` name more positions that
+hold UI text. `doctor` reports the high-confidence count as the
+`HARDCODED_TEXT` warning, `report` adds a section for it, and the MCP server
+serves it as `find_hardcoded`. With `persistentCache`, the scan reuses the
+results for files that have not changed.
+
+The static scan cannot see text that arrives at runtime, from an API or a CMS.
+For that, the [development inspector](reference/inspector.md) checks the page:
+`scanRenderedText(inspector)` lists text on the screen that no message rendered.
+
 ## Migration and codemods
 
 `migrate` converts i18next, vue-i18n, next-intl, FormatJS, Lingui, Tolgee, ARB, YAML,
@@ -733,6 +827,9 @@ The opt-in on-disk cache is set with `persistentCache`. `true` stores the compil
 project under `node_modules/.cache/nordbeam-locale`; a string names another
 directory. It is disabled by default. A cache hit restores the outputs without
 compiling, and missing or modified generated files are rewritten from the cache.
+The `hardcoded` text scan keeps its per-file results in the same directory and
+reuses them for files whose size and modification time have not changed; a
+catalog or configuration change starts it over.
 Delete the cache directory to clear it. See [project](reference/project.md) and
 [compiler](reference/compiler.md) for `createCompiler` and `createGenerator`.
 

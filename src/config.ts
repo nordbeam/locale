@@ -16,7 +16,7 @@ export const historicalConfigName = 'fasti18n.config.json';
 export const configKeys = [
   'baseLocale', 'catalogs', 'notes', 'outDir', 'missing',
   'formats', 'timeZone', 'scopes', 'artifacts', 'includeSources', 'shareLiterals', 'cache', 'persistentCache',
-  'selectionFallback', 'shareMessages', 'preloadManifest', 'staticLocale', 'lockedKeys', 'ignoredKeys',
+  'selectionFallback', 'shareMessages', 'preloadManifest', 'staticLocale', 'lockedKeys', 'ignoredKeys', 'text',
 ] as const;
 /** Accepted but not persisted: the editor schema reference and the ignored development flag. */
 const acceptedConfigKeys = new Set<string>([...configKeys, '$schema', 'development']);
@@ -51,6 +51,18 @@ export function validateConfig(value: unknown, file = configName): asserts value
   validateKeyPolicy(value as Partial<GenerateOptions>, file);
   if (value.persistentCache !== undefined && typeof value.persistentCache !== 'boolean' && (typeof value.persistentCache !== 'string' || !value.persistentCache)) {
     throw new Error(`${file}: persistentCache must be a boolean or nonempty string.`);
+  }
+  if (value.text !== undefined) {
+    if (!isRecord(value.text)) throw new Error(`${file}: text must be an object with exclude, ignore, attributes or calls.`);
+    for (const key of Object.keys(value.text)) {
+      if (!['exclude', 'ignore', 'attributes', 'calls'].includes(key)) throw new Error(`${file}: text has unknown option ${JSON.stringify(key)}; use exclude, ignore, attributes and calls.`);
+      const list = value.text[key];
+      if (!Array.isArray(list) || list.some(item => typeof item !== 'string' || !item)) throw new Error(`${file}: text.${key} must be an array of nonempty strings.`);
+    }
+    for (const pattern of (value.text.ignore ?? []) as string[]) {
+      const regex = /^\/(.+)\/([a-z]*)$/.exec(pattern);
+      if (regex) try { new RegExp(regex[1]!, regex[2]); } catch (error) { throw new Error(`${file}: text.ignore has an invalid regular expression ${pattern}: ${(error as Error).message}`); }
+    }
   }
   if (value.scopes !== undefined) {
     if (!isRecord(value.scopes)) throw new Error(`${file}: scopes must be an object of scope names to message ID arrays or { modules, messages } objects.`);

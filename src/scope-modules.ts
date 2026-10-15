@@ -39,7 +39,7 @@ const sourceExtensions = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', 
 const readable = /\.(?:[cm]?[jt]sx?|vue|svelte|json)$/;
 
 /** A glob over project-relative paths: `*` and `?` within a segment, `**` across segments, `{a,b}` alternatives. */
-function globPattern(glob: string): RegExp {
+export function globPattern(glob: string): RegExp {
   let source = '';
   for (let index = 0; index < glob.length; index++) {
     const char = glob[index]!;

@@ -86,6 +86,17 @@ export const configSchema: JsonSchema = {
     persistentCache: {
       anyOf: [{ type: 'boolean' }, { type: 'string', minLength: 1 }],
     },
+    text: {
+      type: 'object',
+      description: 'How hardcoded and doctor find UI text outside the catalog.',
+      additionalProperties: false,
+      properties: {
+        exclude: { type: 'array', description: 'Source files to skip: glob patterns relative to the project root.', items: { type: 'string', minLength: 1 } },
+        ignore: { type: 'array', description: 'Text to accept as is: exact strings, or /regular expressions/ with flags.', items: { type: 'string', minLength: 1 } },
+        attributes: { type: 'array', description: 'More JSX and template attributes that hold UI text, such as tooltip.', items: { type: 'string', minLength: 1 } },
+        calls: { type: 'array', description: 'More functions whose first argument is UI text, such as toast or notify.', items: { type: 'string', minLength: 1 } },
+      },
+    },
   },
 };
 

@@ -21,6 +21,7 @@ import type { InspectFreshness, InspectMessageResult, InspectResult } from './in
 import { coreVersion, loadMigrate } from './migrate-loader.js';
 import type { CodemodFormat, CodemodSkip, MigrationFormat } from './migrate-loader.js';
 import type { JsonValue, NdjsonEventWriter } from './ndjson-events.js';
+import type { TextFinding, TextScanOptions } from './text-scan.js';
 
 let jsonAny = process.argv.includes('--json') && process.argv.slice(2).some(argument => (commandNames as readonly string[]).includes(argument));
 let ndjsonAny = process.argv.includes('--ndjson');
@@ -79,11 +80,12 @@ function jsonError(errors: readonly Record<string, unknown>[], extra: Record<str
 /** The report for --json: long lists capped like other reports, with what was left out counted in `truncated`. */
 function reportJson(report: import('./report.js').ProjectReport, limit: number): Record<string, unknown> {
   const messages = capList(report.messages, limit), unused = capList(report.usage.unused, limit);
-  const errors = capList(report.diagnostics.errors, limit), warnings = capList(report.diagnostics.warnings, limit);
-  const truncated = Object.fromEntries(Object.entries({ messages: messages.omitted, unused: unused.omitted, errors: errors.omitted, warnings: warnings.omitted }).filter(([, count]) => count));
+  const errors = capList(report.diagnostics.errors, limit), warnings = capList(report.diagnostics.warnings, limit), samples = capList(report.hardcoded.samples, limit);
+  const truncated = Object.fromEntries(Object.entries({ messages: messages.omitted, unused: unused.omitted, errors: errors.omitted, warnings: warnings.omitted, hardcodedSamples: samples.omitted }).filter(([, count]) => count));
   return {
     ...report,
     usage: { ...report.usage, unused: unused.items },
+    hardcoded: { ...report.hardcoded, samples: samples.items },
     diagnostics: { errors: errors.items, warnings: warnings.items },
     messages: messages.items,
     ...(Object.keys(truncated).length ? { truncated } : {}),
@@ -318,6 +320,90 @@ function agentVerb(action: string): string {
   return action === 'unchanged' ? 'Preserved' : action === 'created' ? 'Created' : 'Updated';
 }
 
+/** One finding as a human line: position, the text, how it is translated inline, and its catalog match. */
+function findingLine(finding: TextFinding): string {
+  const text = finding.text.length > 90 ? `${finding.text.slice(0, 89)}…` : finding.text;
+  const inline = finding.translations ? ` · ${Object.keys(finding.translations).join(' and ')} inline` : '';
+  const match = finding.catalog ? paint(process.stdout, 'green', ` → ${finding.catalog.id}${finding.catalog.exact ? '' : ` (${finding.catalog.locale} text only)`}`) : '';
+  const where = finding.kind === 'jsx-text' || finding.kind === 'template-text' ? '' : ` · ${finding.where}`;
+  return `  ${`${finding.line}:${finding.column}`.padEnd(8)} ${JSON.stringify(text)}${where}${inline}${match}${finding.confidence === 'medium' ? ' · medium' : ''}`;
+}
+
+/** `hardcoded`: list UI text outside the catalog, and preview or write fixes for it. */
+async function hardcodedCommand(options: TextScanOptions, values: { json?: boolean; fix?: boolean; extract?: boolean; write?: boolean; strict?: boolean; regenerate?: boolean; confidence?: string }, limit: number, root: string): Promise<void> {
+  const { scanText, planTextFixes } = await import('./text-scan.js');
+  const result = await scanText(options);
+  // New messages need surer findings than reusing a catalog message: --extract defaults to high.
+  const confidence = (values.confidence ?? (values.extract ? 'high' : 'medium')) === 'high' ? 'high' : 'medium';
+  const findings = confidence === 'high' ? result.findings.filter(finding => finding.confidence === 'high') : result.findings;
+  const fixing = !!(values.fix || values.extract);
+  const plan = fixing ? await planTextFixes({ ...result, findings }, { ...options, extract: !!values.extract, confidence }) : undefined;
+  const written = plan && values.write && (plan.edits.length || plan.messages.length)
+    ? await (await import('./cli-tools.js')).applyTextFixes({ ...options, regenerate: !!values.regenerate }, plan) : undefined;
+  const failed = !!values.strict && findings.length > 0 && !written;
+  const { summary } = result;
+  if (values.json) {
+    const shown = capList(findings, limit);
+    const edits = plan && capList(plan.edits, limit), skipped = plan && capList(plan.skipped, limit);
+    const truncated = Object.fromEntries(Object.entries({ findings: shown.omitted, edits: edits?.omitted, skipped: skipped?.omitted }).filter(([, count]) => count));
+    const body = {
+      ok: !failed, sourceFiles: result.sourceFiles, confidence,
+      summary: { ...summary, ...(confidence === 'high' ? { reported: findings.length } : {}) },
+      findings: shown.items, learned: result.learned.slice(0, 50), ignored: result.ignored, incomplete: result.incomplete, timing: result.timing,
+      ...(plan ? { plan: { edits: edits!.items, messages: plan.messages, skipped: skipped!.items } } : {}),
+      ...(written ? { written } : {}),
+      ...(Object.keys(truncated).length ? { truncated } : {}),
+    };
+    jsonSuccess({ root, ...relativePaths(body, root) });
+    if (failed) process.exitCode = 1;
+    return;
+  }
+  if (plan) {
+    let file = '';
+    for (const edit of plan.edits.slice(0, limit)) {
+      if (edit.file !== file) { file = edit.file; console.log(displayPath(file)); }
+      if (edit.before) console.log(`  ${String(edit.line).padEnd(6)} ${paint(process.stdout, 'red', `- ${edit.before.replace(/\s*\n\s*/g, ' ')}`)}`);
+      console.log(`  ${(edit.before ? '' : String(edit.line)).padEnd(6)} ${paint(process.stdout, 'green', `+ ${edit.after.trim()}`)}${edit.added ? ' (new message)' : ''}`);
+    }
+    if (plan.edits.length > limit) console.log(`… ${plan.edits.length - limit} more. --limit all shows every edit.`);
+    const { textSkipReasons } = await import('./text-scan.js');
+    const reasons = new Map<string, number>();
+    for (const item of plan.skipped) reasons.set(textSkipReasons[item.kind], (reasons.get(textSkipReasons[item.kind]) ?? 0) + 1);
+    const files = new Set(plan.edits.map(edit => edit.file)).size, replacements = plan.edits.filter(edit => edit.before).length, bindings = plan.edits.length - replacements;
+    if (written) {
+      ok(`nordbeam-locale: replaced ${plural(written.replaced, 'string')} in ${plural(files, 'file')} and added ${plural(written.added.length, 'message')}.`);
+      if (written.stale) console.log(`Generated output is stale: run ${written.next}.`);
+    } else {
+      console.log(`nordbeam-locale: ${values.extract ? 'extract' : 'fix'} preview — ${plural(replacements, 'replacement')} in ${plural(files, 'file')}, ${plural(plan.messages.length, 'new message')}${bindings ? `, ${plural(bindings, 'added binding')}` : ''}.`);
+      if (plan.edits.length) console.log('Nothing was written. Re-run with --write to apply.');
+    }
+    for (const [reason, count] of [...reasons].sort((a, b) => b[1] - a[1])) console.log(paint(process.stdout, 'yellow', `  skipped ${count}: ${reason}`));
+    return;
+  }
+  let file = '';
+  for (const finding of findings.slice(0, limit)) {
+    if (finding.file !== file) {
+      file = finding.file;
+      console.log(`${displayPath(file)}${finding.context === 'mixed' ? '  (renders messages too)' : ''}`);
+    }
+    console.log(findingLine(finding));
+  }
+  const reported = findings.length, high = findings.filter(finding => finding.confidence === 'high').length;
+  const tone = reported ? 'yellow' : 'green';
+  console.log(paint(process.stdout, tone, reported
+    ? `nordbeam-locale: ${plural(reported, 'string')} of UI text outside the catalog — ${high} high${confidence === 'medium' ? ` and ${reported - high} medium` : ''} confidence; ${findings.filter(finding => finding.catalog).length} match a catalog message.`
+    : `nordbeam-locale: no UI text outside the catalog in ${plural(result.sourceFiles, 'source file')}.`));
+  if (reported) {
+    console.log(`  ${plural(summary.mixedFiles, 'file')} that render messages, ${plural(summary.unlocalizedFiles, 'file')} that render none. Most text by area:`);
+    for (const area of summary.areas.slice(0, 6)) console.log(`    ${area.area.padEnd(36)} ${String(area.findings).padStart(5)} in ${plural(area.files, 'file')}`);
+    if (reported > limit) console.log(`Showing ${limit} of ${reported}, files that render messages first. --limit all lists every one; --json gives the full report.`);
+    const exact = findings.filter(finding => finding.catalog?.exact).length;
+    console.log(`Next: ${exact ? `--fix reuses the ${plural(exact, 'exact catalog match', 'exact catalog matches')}; ` : ''}--extract adds the rest as new messages. Both preview until --write.`);
+  }
+  if (result.incomplete.length) warn(`Not scanned: ${plural(result.incomplete.length, 'file')} (${result.incomplete.slice(0, 3).map(item => `${displayPath(item.file)}: ${item.reason}`).join('; ')}).`);
+  if (failed) process.exitCode = 1;
+}
+
 async function main(): Promise<void> {
   // Keep the parser options inline so Node's generic overload can validate
   // individual fields below; this small structural annotation also lets us
@@ -371,6 +457,9 @@ async function main(): Promise<void> {
     target: { type: 'string' },
     skill: { type: 'string', multiple: true },
     open: { type: 'boolean' },
+    fix: { type: 'boolean' },
+    extract: { type: 'boolean' },
+    confidence: { type: 'string' },
     } });
   } catch (error) {
     throw parseArgumentError(error);
@@ -419,6 +508,7 @@ async function main(): Promise<void> {
   const applyingPlan = positionals[0] === 'apply-plan';
   const verifying = positionals[0] === 'verify';
   const writingReport = positionals[0] === 'report';
+  const scanningText = positionals[0] === 'hardcoded';
   const reporting = checking || doctoring || inspecting || verifying || (generating && !!command);
   if (showingCapabilities) {
     const { getAgentCapabilities } = await import('./agent.js');
@@ -484,7 +574,7 @@ async function main(): Promise<void> {
   const migrationFormats: readonly MigrationFormat[] = agent?.catalogMigrationFormats ?? [];
   const codemodFormats: readonly string[] = agent?.sourceCodemodFormats ?? [];
   if (values.json && values.ndjson) throw usageError('Choose either --json or --ndjson, not both.');
-  if (values.json && !checking && !importing && !pruning && !doctoring && !renaming && !extracting && !migrating && !migratingProject && !pseudolocalizing && !inspecting && !codemodding && !init && !exporting && !writingSchemas && !applyingPlan && !verifying && !writingReport && !(generating && !!command)) throw usageError('--json is available with nordbeam-locale check and other explicit agent-facing commands; run nordbeam-locale capabilities --json for the complete list.');
+  if (values.json && !checking && !importing && !pruning && !doctoring && !renaming && !extracting && !migrating && !migratingProject && !pseudolocalizing && !inspecting && !codemodding && !init && !exporting && !writingSchemas && !applyingPlan && !verifying && !writingReport && !scanningText && !(generating && !!command)) throw usageError('--json is available with nordbeam-locale check and other explicit agent-facing commands; run nordbeam-locale capabilities --json for the complete list.');
   if (values.ndjson && !checking && !doctoring && !migrating && !migratingProject && !inspecting && !codemodding && !applyingPlan && !(generating && !!command)) throw usageError('--ndjson is available with generate, check, doctor, inspect, migrate, migrate-project, codemod, or apply-plan.');
   if (values.framework !== undefined && !init && !migratingProject) throw usageError('--framework is available with nordbeam-locale init or migrate-project.');
   if (values.framework !== undefined && !['next', 'vite-react', 'vue', 'svelte', 'solid', 'tanstack-start'].includes(values.framework)) throw usageError('--framework must be "next", "vite-react", "vue", "svelte", "solid" or "tanstack-start".', { option: '--framework', value: values.framework, validValues: ['next', 'vite-react', 'vue', 'svelte', 'solid', 'tanstack-start'] });
@@ -510,7 +600,11 @@ async function main(): Promise<void> {
   if (values['move-type-import']?.length && !values['messages-import']) throw usageError('--move-type-import requires --messages-import as the explicit replacement type module.');
   if (values['message-id-map'] !== undefined && !migratingProject && !codemodding) throw usageError('--message-id-map is available with nordbeam-locale migrate-project or codemod.');
   if (values['initial-locale-expression'] !== undefined && !migratingProject) throw usageError('--initial-locale-expression is available with nordbeam-locale migrate-project.');
-  if (values.write !== undefined && !codemodding && !migratingProject) throw usageError('--write is available with nordbeam-locale codemod or migrate-project.');
+  if (values.write !== undefined && !codemodding && !migratingProject && !scanningText) throw usageError('--write is available with nordbeam-locale codemod, migrate-project, or hardcoded.');
+  if ((values.fix !== undefined || values.extract !== undefined || values.confidence !== undefined) && !scanningText) throw usageError('--fix, --extract and --confidence are available with nordbeam-locale hardcoded.');
+  if (scanningText && values.write && !values.fix && !values.extract) throw usageError('hardcoded --write applies a fix: add --fix to reuse catalog messages, or --extract to add new ones too.', { option: '--write' });
+  if (values.confidence !== undefined && values.confidence !== 'high' && values.confidence !== 'medium') throw usageError('--confidence must be "high" or "medium".', { option: '--confidence', value: values.confidence, validValues: ['high', 'medium'] });
+  if (values.regenerate !== undefined && scanningText && !values.write) throw usageError('--regenerate applies with hardcoded --write.', { option: '--regenerate' });
   if (values.plan !== undefined && !codemodding) throw usageError('--plan is available with nordbeam-locale codemod.');
   if (codemodding && values.plan && values.write) throw usageError('Create a reviewed plan or apply immediately with --write; do not combine --plan and --write.');
   if (values['from-locale'] !== undefined && !pseudolocalizing) throw usageError('--from-locale is available with nordbeam-locale pseudo.');
@@ -521,7 +615,8 @@ async function main(): Promise<void> {
   if (values.agent !== undefined && !init) throw usageError('--agent is available with nordbeam-locale init.');
   if (values.target !== undefined || values.skill !== undefined) throw usageError('--target and --skill are available with nordbeam-locale skills install.');
   if (writingReport && (values.only !== undefined || values.summary !== undefined)) throw usageError('report accepts --limit for its JSON lists, but not --only or --summary.');
-  if ((values.limit !== undefined || values.only !== undefined || values.summary !== undefined) && !reporting && !writingReport) throw usageError('--limit, --only and --summary are available with nordbeam-locale check, doctor, generate, inspect, or verify.');
+  if (scanningText && (values.only !== undefined || values.summary !== undefined)) throw usageError('hardcoded accepts --limit for its lists, but not --only or --summary.');
+  if ((values.limit !== undefined || values.only !== undefined || values.summary !== undefined) && !reporting && !writingReport && !scanningText) throw usageError('--limit, --only and --summary are available with nordbeam-locale check, doctor, generate, inspect, or verify.');
   const reportShape = { ...parseLimit(values.limit), ...(values.only === undefined ? {} : { only: parseOnly(values.only) }), summary: !!values.summary };
   if (applyingPlan && !values.from) throw usageError('apply-plan requires --from <reviewed-plan.json>.');
   if (pseudolocalizing && !values.locale) throw usageError('pseudo requires --locale en-XA.');
@@ -532,7 +627,8 @@ async function main(): Promise<void> {
   if (renaming && (!renameFrom || !renameTo)) throw usageError('rename requires --id old.id and --to new.id (or: rename old.id new.id).');
   if (extracting && (!extractId || extractMessageText === undefined)) throw usageError('extract requires --id message.id and --message "Source text" (or: extract message.id "Source text").');
   if (writingReport && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined)) throw usageError('report accepts --source-dir, --out, --open, --limit and --json.');
-  if (!renaming && !extracting && !pruning && !doctoring && !inspecting && !codemodding && !migratingProject && !writingReport && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined || values['source-dir'] !== undefined)) throw usageError('--id, --to, --message and --source-dir are available with rename, extract, prune, doctor, codemod, or migrate-project.');
+  if (scanningText && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined)) throw usageError('hardcoded accepts --source-dir, --confidence, --fix, --extract, --write, --strict, --limit and --json.');
+  if (!renaming && !extracting && !pruning && !doctoring && !inspecting && !codemodding && !migratingProject && !writingReport && !scanningText && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined || values['source-dir'] !== undefined)) throw usageError('--id, --to, --message and --source-dir are available with rename, extract, prune, doctor, codemod, or migrate-project.');
   if ((pruning || doctoring) && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined)) throw usageError('prune and doctor accept only --source-dir and --dry-run/--json.');
   if (exporting || importing) {
     if (!values.locale) throw usageError('Choose a target locale with --locale, for example --locale fr.');
@@ -605,13 +701,18 @@ async function main(): Promise<void> {
     const { summary } = report;
     const line = `nordbeam-locale: report on ${plural(summary.messages, 'message')} in ${plural(summary.locales, 'locale')} — `
       + `${summary.locales > 1 ? `${(Math.floor(summary.coverage * 1000) / 10).toString()}% translated, ` : ''}`
-      + `${summary.sourceFiles ? `${summary.unused} unused, ` : ''}${plural(summary.errors, 'error')}, ${plural(summary.warnings, 'warning')}.`;
+      + `${summary.sourceFiles ? `${summary.unused} unused, ` : ''}${report.hardcoded.high ? `${plural(report.hardcoded.high, 'hardcoded string')}, ` : ''}${plural(summary.errors, 'error')}, ${plural(summary.warnings, 'warning')}.`;
     if (values.json) jsonSuccess({ ...(file ? { file } : {}), ...reportJson(report, reportShape.limit) });
     else if (file) {
       console.log(line);
       console.log(`→ ${pagePath(file)}${values.open ? '' : ' (open it in a browser, or add --open)'}`);
     } else console.error(line);
     if (values.open && file) openPage(file);
+    return;
+  }
+  if (scanningText) {
+    requireCatalogs(options);
+    await hardcodedCommand({ ...options, sourceDir: values['source-dir'], text: config.text }, values, reportShape.limit, root);
     return;
   }
   if (inspecting) {
