@@ -5,7 +5,12 @@ documented here. The project follows [Semantic Versioning](https://semver.org/);
 before 1.0, minor versions may contain breaking changes, and they are called
 out in this file.
 
-## Unreleased
+## 0.3.0
+
+Breaking changes, all in the TanStack Start adapter: a `hydrate` router option
+of your own must call `options.hydrate()`; a direct call to `i18n.beforeLoad`
+that passes `matches` in an object literal must drop it; and `getLocale()`
+returns `undefined` outside a request instead of throwing. Details below.
 
 ### `@nordbeam/locale`
 
@@ -107,14 +112,16 @@ out in this file.
   formatter import lost its last name, the `import '…';` left in its place was
   joined onto the next line, and its quotes became double quotes.
 
-## 0.2.2
+### `nordbeam-locale`
 
-No code changes. The three packages are republished together at one version.
+- Available again, at the same version as `@nordbeam/locale`, so
+  `npx nordbeam-locale init` works. Its 0.2.1 was withdrawn, and 0.2.2 was
+  never published.
 
 ## 0.2.1
 
-The first public release. 0.2.0 was published briefly and withdrawn because its
-package metadata listed scripts from the development repository.
+The first public release. 0.2.0 is deprecated because its package metadata
+listed scripts from the development repository.
 
 ### `@nordbeam/locale`
 
