@@ -12,7 +12,7 @@ export * from './migrate-catalog.js';
 export * from './catalog-formats.js';
 
 // Keep in step with the @nordbeam/locale version; the core CLI refuses a mismatched package.
-export const version = '0.2.1';
+export const version = '0.2.2';
 
 // Compile-time guard: the build fails if this package stops satisfying the core loader's MigrateModule contract.
 const contract = { version, codemodProject, migrateProject, migrateCatalog } satisfies MigrateModule;

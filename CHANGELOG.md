@@ -7,6 +7,10 @@ out in this file.
 
 ## Unreleased
 
+## 0.2.2
+
+No code changes. The three packages are republished together at one version.
+
 ## 0.2.1
 
 The first public release. 0.2.0 was published briefly and withdrawn because its

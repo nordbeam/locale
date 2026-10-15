@@ -1,6 +1,6 @@
 {
   "name": "nordbeam-locale",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "The nordbeam-locale CLI for npx. It runs the CLI of @nordbeam/locale; add @nordbeam/locale to your project instead of this package.",
   "keywords": [
     "i18n",
@@ -33,6 +33,6 @@
     "nordbeam-locale": "./cli.js"
   },
   "dependencies": {
-    "@nordbeam/locale": "0.2.1"
+    "@nordbeam/locale": "0.2.2"
   }
 }

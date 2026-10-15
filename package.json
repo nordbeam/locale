@@ -1,6 +1,6 @@
 {
   "name": "@nordbeam/locale",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Nordbeam Locale: compile ICU translations into typed, tree-shakable JavaScript with lazy locale loading",
   "keywords": [
     "i18n",
