@@ -5,6 +5,22 @@ documented here. The project follows [Semantic Versioning](https://semver.org/);
 before 1.0, minor versions may contain breaking changes, and they are called
 out in this file.
 
+## Unreleased
+
+### `@nordbeam/locale`
+
+- **Project report.** `nordbeam-locale report` writes a self-contained HTML
+  page about the project's translations: coverage per locale, namespaces as a
+  treemap, the size of the catalog each locale downloads and of each scope, ICU
+  features, which files use which messages, unused messages, diagnostics, and a
+  searchable table of every message. `--open` opens it, `--out` names the file,
+  and `--json` returns the same data for scripts and agents. See
+  [Project report](docs/GUIDE.md#project-report).
+- The source scan behind `doctor`, `prune` and `rename` skips regular
+  expression literals. It used to read the `m` flag in `/…/m.test(s)` as the
+  messages object and report an unknown message ID, and a quote inside a
+  regular expression could hide the rest of the line from the scan.
+
 ## 0.3.0
 
 Breaking changes, all in the TanStack Start adapter: a `hydrate` router option

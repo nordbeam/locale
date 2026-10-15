@@ -84,6 +84,7 @@ Generated modules export `loadLocale(locale)` (resolves `{ locale, messages }`),
 - **Add a language**: create `messages/<locale>.json` with the translated keys, run `check --strict`, `generate`, then `verify`. Untranslated keys fall back to the base text. Add the locale to any switcher and, for Next.js, to the routing; right-to-left locales also need `dir` on the document.
 - **Rename or remove a message**: `rename --id old --to new --regenerate --json` updates every catalog and recognisable source references. `prune --dry-run --json` only reports unreferenced IDs; delete them yourself after reviewing dynamic usage.
 - **Translator hand-off**: `export --locale fr --out translations/fr.po`, then `import --locale fr --from translations/fr.po --dry-run --json` before importing without `--dry-run`.
+- **How complete, used or large are the translations**: `report --json` for the numbers. When a person asks, offer `npx nordbeam-locale report --open`, which writes a local HTML page with coverage, unused messages, namespaces, scopes and catalog sizes.
 - **Pseudo-locale for layout testing**: `pseudo --locale en-XA --dry-run --json`, then without `--dry-run`.
 - **Tests**: `@nordbeam/locale/testing` gives `createMessageTestHelpers<Messages>()`; see [references/node.md](references/node.md).
 - **Production builds** must run with `NODE_ENV=production` (or `generate --production`); otherwise the output keeps development argument guards. `init` adds `"prebuild": "nordbeam-locale"`, not `prepare`.

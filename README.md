@@ -337,6 +337,10 @@ covers moving from i18next, next-intl, FormatJS, Lingui, vue-i18n and others.
   `AGENTS.md`, and to `CLAUDE.md` when that file exists, and installs the skills
   into `.claude/skills/` and `.agents/skills/`. `npx nordbeam-locale skills install`
   refreshes them without touching files you edited.
+- `npx nordbeam-locale report --open` writes and opens a page with coverage per
+  locale, unused messages, namespaces, scopes, ICU features and the size of each
+  generated catalog. `report --json` returns the same data. See
+  [Project report](docs/GUIDE.md#project-report).
 - `npx nordbeam-locale agent-guide` prints the protocol guide.
 - `npx nordbeam-locale capabilities --json` lists every command and its contract.
 - `npx nordbeam-locale verify --json` exits 0 only when `check` passes and the

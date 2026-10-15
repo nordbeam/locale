@@ -176,6 +176,13 @@ export interface ScopeModulesResult {
   readonly files: string[];
 }
 
+/** The message IDs that a module names, found the way module scopes find them. */
+export function sourceMessageIds(code: string, ids: readonly string[], known: ReadonlySet<string> = new Set(ids)): Set<string> {
+  const found = new Set<string>();
+  namedIds(code, known, ids, found);
+  return found;
+}
+
 /** The base catalog IDs that the files matched by `modules`, and the files they import, name. */
 export async function moduleScopeIds(options: { root: string; scope: string; modules: readonly string[]; exclude?: readonly string[]; ids: readonly string[]; outDir: string }): Promise<ScopeModulesResult> {
   const root = resolve(options.root);

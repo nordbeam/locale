@@ -607,6 +607,42 @@ automation integrations. These commands never touch generated output.
 it creates only the explicit target locale and requires `--update` before an
 existing target can be replaced.
 
+### Project report
+
+`report` writes one HTML page about the project's translations. The data and
+the code are inside the file, and it loads nothing from the network.
+
+```sh
+npx nordbeam-locale report --open
+npx nordbeam-locale report --source-dir app --out reports/i18n.html
+npx nordbeam-locale report --json
+```
+
+The page shows:
+
+- Coverage per locale: translated, the same as the base text, blank, and
+  missing, with keys that exist only in a translation.
+- Namespaces as a treemap, sized by message count and colored by untranslated or
+  unused messages. Click a namespace to see its children.
+- What each locale downloads: the generated catalog module that `loadLocale`
+  fetches, raw, gzip and brotli, and the same for each scope.
+- Scopes: how many messages each one takes and its share of the catalog.
+- ICU features: how many messages use plurals, ordinals, selects, numbers, dates
+  and tags.
+- Source usage: which files reference which messages, unused messages, and IDs
+  the source names that the catalog lacks. It uses the scan behind `doctor`, so a
+  key assembled at runtime in a way it cannot see counts as unused. A file that
+  names most of the catalog, such as a copy of it, is listed but not counted.
+- Every `check` diagnostic, and a searchable table of all messages, filtered by
+  status, locale, feature, scope or namespace. Clicking a chart filters the table.
+
+The page is written to `nordbeam-locale-report.html` in the project root unless
+`--out` names another file; `--out -` prints it. `--json` returns the same data
+without writing a page (add `--out` to do both); its message and unused lists are
+capped like other reports, with `--limit`. When the catalogs do not compile, the
+report still covers them, without the sizes. Add the file to `.gitignore` if you
+generate it in the project.
+
 ## Migration and codemods
 
 `migrate` converts i18next, vue-i18n, next-intl, FormatJS, Lingui, Tolgee, ARB, YAML,

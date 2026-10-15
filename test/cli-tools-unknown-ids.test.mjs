@@ -47,6 +47,18 @@ test('doctor flags unknown IDs on an explicitly imported messages binding', asyn
   assert.equal(error.hint, 'Did you mean "hello"?');
 });
 
+test('a regular expression is not code: its m flag is not the messages object, and its quotes open no string', async t => {
+  const root = await project(t, [
+    'const a = /^export\\s+default\\b/m.test(source);',
+    "const b = text.replace(/['\"]/g, '') && m.checkout.totl();",
+    'const c = x => /[/]m/m.exec(x);',
+    'const half = total / m.hello() / 2;',
+    '<p>{m.hello()}</p><b>{m.helo()}</b>',
+  ].join('\n'));
+  const result = await doctor({ root, baseLocale: 'en', catalogs: 'messages', sourceDir: 'src' });
+  assert.deepEqual(unknownOf(result).map(error => [error.messageId, error.location.line]), [['checkout.totl', 2], ['helo', 5]]);
+});
+
 test('doctor does not flag correct IDs, namespaces, dynamic keys or unknown objects', async t => {
   const root = await project(t, [
     'm.hello(); m.checkout.pay(); m["checkout.total"](); m.checkout["pay"]();',

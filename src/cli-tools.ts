@@ -235,7 +235,7 @@ function codeFiles(root: string, sourceDir?: string, excluded: string[] = []): P
   return visit(start).then(() => result);
 }
 
-interface SourceScan { files: string[]; ids: Set<string>; references: string[]; unknown: Diagnostic[] }
+interface SourceScan { files: string[]; ids: Set<string>; references: string[]; unknown: Diagnostic[]; usage: Map<string, Set<string>> }
 const messageImport = /\bimport\s+(?:type\s+)?([A-Za-z_$][\w$]*)\s*(?:,\s*\{[^}]*\})?\s*from\s*(['"])([^'"]+)\2/g;
 
 /** Local names bound to the generated messages object. An import from a
@@ -279,6 +279,8 @@ function unknownReference(file: string, text: string, offset: number, id: string
 
 async function scanSources(root: string, sourceDir?: string, known?: Set<string>, excluded: string[] = []): Promise<SourceScan> {
   const files = await codeFiles(root, sourceDir, excluded), ids = new Set<string>(), references: string[] = [], unknown: Diagnostic[] = [];
+  const usage = new Map<string, Set<string>>();
+  const use = (id: string, file: string): void => { ids.add(id); references.push(file); let users = usage.get(id); if (!users) usage.set(id, users = new Set()); users.add(file); };
   // This is intentionally a lexical, conservative scan. It only rewrites
   // property calls/bracket access and known key-taking calls, never arbitrary
   // prose. False negatives stay safe; callers can review dynamic keys.
@@ -302,21 +304,21 @@ async function scanSources(root: string, sourceDir?: string, known?: Set<string>
       if (!mask[match.index!]) continue;
       const chain = match[1]!;
       const id = knownIds?.find(candidate => chain === candidate || chain.endsWith(`.${candidate}`)) ?? (known ? undefined : chain.slice(chain.indexOf('.') + 1));
-      if (id) { ids.add(id); references.push(file); }
+      if (id) use(id, file);
       checkUnknown(file, text, match.index!, chain, bindings);
     }
     for (const match of text.matchAll(bracket)) {
       if (!mask[match.index!]) continue;
-      const id = match[3]!; if (!known || known.has(id)) { ids.add(id); references.push(file); }
+      const id = match[3]!; if (!known || known.has(id)) use(id, file);
       const chain = match[1]!, root = chain.split('.')[0]!;
       if (known && bindings.has(root)) { const rest = chain.slice(root.length + 1); checkUnknown(file, text, match.index!, rest ? `${root}.${rest}.${id}` : `${root}.${id}`, bindings); }
     }
     for (const match of text.matchAll(quoted)) {
       if (!mask[match.index!]) continue;
-      const id = match[2]!; if (!known || known.has(id)) { ids.add(id); references.push(file); }
+      const id = match[2]!; if (!known || known.has(id)) use(id, file);
     }
   }
-  return { files, ids, references: [...new Set(references)].sort(compare), unknown };
+  return { files, ids, references: [...new Set(references)].sort(compare), unknown, usage };
 }
 
 async function defaultSourceDirectories(root: string): Promise<string[]> {
@@ -336,7 +338,9 @@ async function scanDefaultSources(root: string, known: Set<string>, excluded: st
   const files = [...new Set(scans.flatMap(scan => scan.files))].sort(compare);
   const ids = new Set(scans.flatMap(scan => [...scan.ids]));
   const references = [...new Set(scans.flatMap(scan => scan.references))].sort(compare);
-  return { files, ids, references, unknown: scans.flatMap(scan => scan.unknown) };
+  const usage = new Map<string, Set<string>>();
+  for (const scan of scans) for (const [id, users] of scan.usage) { const merged = usage.get(id); if (merged) for (const file of users) merged.add(file); else usage.set(id, new Set(users)); }
+  return { files, ids, references, unknown: scans.flatMap(scan => scan.unknown), usage };
 }
 
 function replaceReferences(text: string, from: string, to: string): { text: string; count: number } {
@@ -375,6 +379,41 @@ function replaceReferences(text: string, from: string, to: string): { text: stri
  * TypeScript parser dependency. Template literals are treated as text (a safe
  * false negative); callers can still rename those dynamic usages manually.
  * Literal openers are marked so dynamic keys can be located; contents are not. */
+/** Whether a `/` starts a regular expression literal rather than a division:
+ * after an operator, an opening bracket, `=>` or a keyword such as `return`.
+ * `<`, `}` and `)` stay division, so JSX closing tags and `{a}/{b}` text are code. */
+function startsRegex(text: string, index: number): boolean {
+  let before = index - 1;
+  while (before >= 0 && /\s/.test(text[before]!)) before--;
+  if (before < 0) return true;
+  const char = text[before]!;
+  if (char === '>') return text[before - 1] === '=';
+  if (/[(,=:[!&|?{;+\-*%~^]/.test(char)) return true;
+  if (!/[\w$]/.test(char)) return false;
+  let start = before;
+  while (start > 0 && /[\w$]/.test(text[start - 1]!)) start--;
+  return /^(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/.test(text.slice(start, before + 1));
+}
+
+/** The end of a regular expression literal that starts at `index`, after its
+ * flags, or -1 when the line ends first and the slash is a division after all. */
+function regexEnd(text: string, index: number): number {
+  let inClass = false;
+  for (let i = index + 1; i < text.length; i++) {
+    const char = text[i]!;
+    if (char === '\n' || char === '\r') return -1;
+    if (char === '\\') { i++; continue; }
+    if (char === '[') inClass = true;
+    else if (char === ']') inClass = false;
+    else if (char === '/' && !inClass) {
+      let end = i + 1;
+      while (end < text.length && /[a-z]/.test(text[end]!)) end++;
+      return end;
+    }
+  }
+  return -1;
+}
+
 function codeMask(text: string): Uint8Array {
   const mask = new Uint8Array(text.length); let state: 'code' | 'line' | 'block' | 'single' | 'double' | 'template' = 'code';
   for (let i = 0; i < text.length; i++) {
@@ -382,6 +421,8 @@ function codeMask(text: string): Uint8Array {
     if (state === 'code') {
       if (char === '/' && next === '/') { state = 'line'; i++; continue; }
       if (char === '/' && next === '*') { state = 'block'; i++; continue; }
+      // A regular expression's source and flags are not code: `/x/m.test(s)` names no message `m`.
+      if (char === '/' && startsRegex(text, i)) { const end = regexEnd(text, i); if (end !== -1) { i = end - 1; continue; } }
       mask[i] = 1;
       if (char === "'") state = 'single';
       else if (char === '"') state = 'double';
@@ -497,6 +538,22 @@ export async function pruneMessages(options: RefactorOptions & { dryRun?: boolea
   const unused = baseLeaves.filter(id => !scan.ids.has(id));
   const checked = validate(options, input.catalogs);
   return { changed: [], references: scan.references, ids: baseLeaves, warnings: checked.warnings, unused, sourceFiles: scan.files.length };
+}
+
+export interface SourceUsage {
+  /** Source files scanned. */
+  files: string[];
+  /** Base-catalog message IDs and the files that reference them. */
+  usage: Map<string, Set<string>>;
+  /** References to IDs the base catalog lacks, as UNKNOWN_MESSAGE_ID errors. */
+  unknown: Diagnostic[];
+}
+
+/** The same static scan as doctor and prune, with the files that reference each message. */
+export async function sourceUsage(options: RefactorOptions, ids: readonly string[]): Promise<SourceUsage> {
+  const root = resolve(options.root ?? '.'), known = new Set(ids), excluded = [options.catalogs ?? 'messages', options.outDir ?? 'src/i18n'];
+  const scan = options.sourceDir === undefined ? await scanDefaultSources(root, known, excluded) : await scanSources(root, options.sourceDir, known, excluded);
+  return { files: scan.files, usage: scan.usage, unknown: scan.unknown };
 }
 
 /** Validate the project and provide a compact inventory useful in editors/CI. */

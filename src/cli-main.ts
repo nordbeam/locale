@@ -1,4 +1,5 @@
 import { existsSync, watch } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
@@ -73,6 +74,34 @@ function jsonError(errors: readonly Record<string, unknown>[], extra: Record<str
   const body = { ok: false, summary: summarize(errors as { code?: string }[], []), ...extra, errors };
   // The project root is known once the config loads; before that, paths stay as the error reported them.
   console.log(JSON.stringify(eventRoot === undefined ? { version: 1, ...body } : { version: 1, root: eventRoot, ...relativePaths(body, eventRoot) }));
+}
+
+/** The report for --json: long lists capped like other reports, with what was left out counted in `truncated`. */
+function reportJson(report: import('./report.js').ProjectReport, limit: number): Record<string, unknown> {
+  const messages = capList(report.messages, limit), unused = capList(report.usage.unused, limit);
+  const errors = capList(report.diagnostics.errors, limit), warnings = capList(report.diagnostics.warnings, limit);
+  const truncated = Object.fromEntries(Object.entries({ messages: messages.omitted, unused: unused.omitted, errors: errors.omitted, warnings: warnings.omitted }).filter(([, count]) => count));
+  return {
+    ...report,
+    usage: { ...report.usage, unused: unused.items },
+    diagnostics: { errors: errors.items, warnings: warnings.items },
+    messages: messages.items,
+    ...(Object.keys(truncated).length ? { truncated } : {}),
+  };
+}
+
+/** A written page's path, relative when it is inside the current directory and absolute otherwise. */
+function pagePath(file: string): string {
+  const shown = displayPath(file);
+  return shown.startsWith('../') ? file : shown;
+}
+
+/** Open a file with the platform's default handler without waiting for it. */
+function openPage(file: string): void {
+  const [command, args] = process.platform === 'darwin' ? ['open', [file]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', file]] : ['xdg-open', [file]];
+  const child = spawn(command as string, args as string[], { detached: true, stdio: 'ignore' });
+  child.on('error', () => console.error(`nordbeam-locale: could not open a browser. Open ${pagePath(file)} yourself.`));
+  child.unref();
 }
 
 /** Command results that list diagnostics share one machine shape: a summary, capped lists, project-relative paths and the project root. */
@@ -341,6 +370,7 @@ async function main(): Promise<void> {
     agent: { type: 'boolean' },
     target: { type: 'string' },
     skill: { type: 'string', multiple: true },
+    open: { type: 'boolean' },
     } });
   } catch (error) {
     throw parseArgumentError(error);
@@ -388,6 +418,7 @@ async function main(): Promise<void> {
   const showingAgentGuide = positionals[0] === 'agent-guide';
   const applyingPlan = positionals[0] === 'apply-plan';
   const verifying = positionals[0] === 'verify';
+  const writingReport = positionals[0] === 'report';
   const reporting = checking || doctoring || inspecting || verifying || (generating && !!command);
   if (showingCapabilities) {
     const { getAgentCapabilities } = await import('./agent.js');
@@ -453,13 +484,15 @@ async function main(): Promise<void> {
   const migrationFormats: readonly MigrationFormat[] = agent?.catalogMigrationFormats ?? [];
   const codemodFormats: readonly string[] = agent?.sourceCodemodFormats ?? [];
   if (values.json && values.ndjson) throw usageError('Choose either --json or --ndjson, not both.');
-  if (values.json && !checking && !importing && !pruning && !doctoring && !renaming && !extracting && !migrating && !migratingProject && !pseudolocalizing && !inspecting && !codemodding && !init && !exporting && !writingSchemas && !applyingPlan && !verifying && !(generating && !!command)) throw usageError('--json is available with nordbeam-locale check and other explicit agent-facing commands; run nordbeam-locale capabilities --json for the complete list.');
+  if (values.json && !checking && !importing && !pruning && !doctoring && !renaming && !extracting && !migrating && !migratingProject && !pseudolocalizing && !inspecting && !codemodding && !init && !exporting && !writingSchemas && !applyingPlan && !verifying && !writingReport && !(generating && !!command)) throw usageError('--json is available with nordbeam-locale check and other explicit agent-facing commands; run nordbeam-locale capabilities --json for the complete list.');
   if (values.ndjson && !checking && !doctoring && !migrating && !migratingProject && !inspecting && !codemodding && !applyingPlan && !(generating && !!command)) throw usageError('--ndjson is available with generate, check, doctor, inspect, migrate, migrate-project, codemod, or apply-plan.');
   if (values.framework !== undefined && !init && !migratingProject) throw usageError('--framework is available with nordbeam-locale init or migrate-project.');
   if (values.framework !== undefined && !['next', 'vite-react', 'vue', 'svelte', 'solid', 'tanstack-start'].includes(values.framework)) throw usageError('--framework must be "next", "vite-react", "vue", "svelte", "solid" or "tanstack-start".', { option: '--framework', value: values.framework, validValues: ['next', 'vite-react', 'vue', 'svelte', 'solid', 'tanstack-start'] });
   if (values.locale !== undefined && !exporting && !importing && !extracting && !pseudolocalizing && !migrating && !migratingProject) throw usageError('--locale is available with nordbeam-locale export, import, extract, pseudo, migrate, or migrate-project.');
   if (values.from !== undefined && !importing && !renaming && !migrating && !migratingProject && !applyingPlan) throw usageError('--from is available with nordbeam-locale import, rename, migrate, migrate-project, or apply-plan.');
-  if (values.out !== undefined && !exporting && !migrating) throw usageError('--out is available with nordbeam-locale export or migrate.');
+  if (values.out !== undefined && !exporting && !migrating && !writingReport) throw usageError('--out is available with nordbeam-locale export, migrate, or report.');
+  if (values.open && !writingReport) throw usageError('--open is available with nordbeam-locale report.');
+  if (values.open && (values.out === '-' || values.json && values.out === undefined)) throw usageError('--open needs a page file: drop --json, or add --out <file>.');
   if (values['dry-run'] !== undefined && !importing && !pruning && !migrating && !pseudolocalizing) throw usageError('--dry-run is available with nordbeam-locale import, prune, migrate, pseudo, or skills install.');
   if (values.format !== undefined && !migrating && !migratingProject && !codemodding) throw usageError('--format is available with nordbeam-locale migrate, migrate-project, or codemod.');
   if (values['catalog-format'] !== undefined && !migratingProject) throw usageError('--catalog-format is available with nordbeam-locale migrate-project.');
@@ -487,7 +520,8 @@ async function main(): Promise<void> {
   if (inspecting && values.id !== undefined && values.ndjson) throw usageError('inspect --id prints one message, as JSON or as text; it does not stream NDJSON.');
   if (values.agent !== undefined && !init) throw usageError('--agent is available with nordbeam-locale init.');
   if (values.target !== undefined || values.skill !== undefined) throw usageError('--target and --skill are available with nordbeam-locale skills install.');
-  if ((values.limit !== undefined || values.only !== undefined || values.summary !== undefined) && !reporting) throw usageError('--limit, --only and --summary are available with nordbeam-locale check, doctor, generate, inspect, or verify.');
+  if (writingReport && (values.only !== undefined || values.summary !== undefined)) throw usageError('report accepts --limit for its JSON lists, but not --only or --summary.');
+  if ((values.limit !== undefined || values.only !== undefined || values.summary !== undefined) && !reporting && !writingReport) throw usageError('--limit, --only and --summary are available with nordbeam-locale check, doctor, generate, inspect, or verify.');
   const reportShape = { ...parseLimit(values.limit), ...(values.only === undefined ? {} : { only: parseOnly(values.only) }), summary: !!values.summary };
   if (applyingPlan && !values.from) throw usageError('apply-plan requires --from <reviewed-plan.json>.');
   if (pseudolocalizing && !values.locale) throw usageError('pseudo requires --locale en-XA.');
@@ -497,7 +531,8 @@ async function main(): Promise<void> {
   const extractId = values.id ?? positionals[1], extractMessageText = values.message ?? values['default-message'] ?? positionals[2];
   if (renaming && (!renameFrom || !renameTo)) throw usageError('rename requires --id old.id and --to new.id (or: rename old.id new.id).');
   if (extracting && (!extractId || extractMessageText === undefined)) throw usageError('extract requires --id message.id and --message "Source text" (or: extract message.id "Source text").');
-  if (!renaming && !extracting && !pruning && !doctoring && !inspecting && !codemodding && !migratingProject && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined || values['source-dir'] !== undefined)) throw usageError('--id, --to, --message and --source-dir are available with rename, extract, prune, doctor, codemod, or migrate-project.');
+  if (writingReport && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined)) throw usageError('report accepts --source-dir, --out, --open, --limit and --json.');
+  if (!renaming && !extracting && !pruning && !doctoring && !inspecting && !codemodding && !migratingProject && !writingReport && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined || values['source-dir'] !== undefined)) throw usageError('--id, --to, --message and --source-dir are available with rename, extract, prune, doctor, codemod, or migrate-project.');
   if ((pruning || doctoring) && (values.id !== undefined || values.to !== undefined || values.message !== undefined || values['default-message'] !== undefined)) throw usageError('prune and doctor accept only --source-dir and --dry-run/--json.');
   if (exporting || importing) {
     if (!values.locale) throw usageError('Choose a target locale with --locale, for example --locale fr.');
@@ -552,6 +587,33 @@ async function main(): Promise<void> {
   };
   const root = options.root!;
   const shape: ReportOptions = { ...reportShape, baseLocale: options.baseLocale };
+  if (writingReport) {
+    requireCatalogs(options);
+    const { buildReport } = await import('./report.js');
+    const report = await buildReport({ ...options, sourceDir: values['source-dir'] }, configFile, loaded);
+    let file: string | undefined;
+    if (!values.json || values.out !== undefined) {
+      const { renderReportPage } = await import('./report-page.js');
+      const page = renderReportPage(report);
+      if (values.out === '-') process.stdout.write(page);
+      else {
+        file = values.out === undefined ? resolve(root, 'nordbeam-locale-report.html') : resolve(values.out);
+        await mkdir(dirname(file), { recursive: true });
+        await writeFile(file, page);
+      }
+    }
+    const { summary } = report;
+    const line = `nordbeam-locale: report on ${plural(summary.messages, 'message')} in ${plural(summary.locales, 'locale')} — `
+      + `${summary.locales > 1 ? `${(Math.floor(summary.coverage * 1000) / 10).toString()}% translated, ` : ''}`
+      + `${summary.sourceFiles ? `${summary.unused} unused, ` : ''}${plural(summary.errors, 'error')}, ${plural(summary.warnings, 'warning')}.`;
+    if (values.json) jsonSuccess({ ...(file ? { file } : {}), ...reportJson(report, reportShape.limit) });
+    else if (file) {
+      console.log(line);
+      console.log(`→ ${pagePath(file)}${values.open ? '' : ' (open it in a browser, or add --open)'}`);
+    } else console.error(line);
+    if (values.open && file) openPage(file);
+    return;
+  }
   if (inspecting) {
     const { inspectProject, inspectMessage, baseMessageIds } = await import('./inspect.js');
     if (values.id !== undefined) {
