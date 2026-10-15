@@ -29,6 +29,30 @@ out in this file.
 - **`init --framework tanstack-start`** no longer suggests calling
   `routerOptions()` twice to merge your own router context. Two calls create
   two router states.
+- **`codemod --messages-hook <name>`** passes the new codemod option through
+  (see below).
+
+### `@nordbeam/locale-migrate`
+
+- **Codemod: `messagesHook` binds the messages object through a hook.** With
+  `--messages-import ~/i18n --messages-hook useMessages`, each formatter hook
+  whose calls were all rewritten (`const t = useT()`) becomes
+  `const m = useMessages()`. A hook that skipped calls keep alive gets
+  `const m = useMessages();` on the next line. The hook is imported instead of
+  `m`. On Nordsynk's 185 rewritten files, unbound `m` warnings fell from 185
+  files to 47, all of them functions that receive `t` as a parameter. Before,
+  a hook-based wrapper left every rewritten file with an unbound `m`
+  (`MISSING_MESSAGES_BINDING`). A side-effect import of the `messagesImport`
+  module now becomes the named import instead of a second import.
+- **Codemod: custom calls under `--format auto` are judged once.** Each custom
+  call went through every format's rules. A values argument
+  (`t('key', { plan })`) was rewritten by one pass and reported as an
+  unsupported svelte-i18n option by another, so `--strict` refused a complete
+  migration. A custom call now belongs to the format that detected the same
+  callee, or else to a pass that passes values through unchanged.
+- **Codemod: a kept side-effect import keeps its line.** When a custom
+  formatter import lost its last name, the `import '…';` left in its place was
+  joined onto the next line, and its quotes became double quotes.
 
 ## 0.2.2
 

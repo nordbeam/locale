@@ -311,6 +311,7 @@ async function main(): Promise<void> {
     'schema-dir': { type: 'string' },
     'messages-object': { type: 'string' },
     'messages-import': { type: 'string' },
+    'messages-hook': { type: 'string' },
     'move-type-import': { type: 'string', multiple: true },
     'message-id-map': { type: 'string' },
     'custom-call': { type: 'string', multiple: true },
@@ -468,6 +469,8 @@ async function main(): Promise<void> {
   if ((values['messages-object'] !== undefined || values['custom-call'] !== undefined) && !codemodding && !migratingProject) throw usageError('--messages-object and --custom-call are available with nordbeam-locale codemod or migrate-project.');
   if (values['messages-import'] !== undefined && !codemodding) throw usageError('--messages-import is available with nordbeam-locale codemod.');
   if (values['move-type-import'] !== undefined && !codemodding) throw usageError('--move-type-import is available with nordbeam-locale codemod.');
+  if (values['messages-hook'] !== undefined && !codemodding) throw usageError('--messages-hook is available with nordbeam-locale codemod.');
+  if (values['messages-hook'] !== undefined && !values['messages-import']) throw usageError('--messages-hook requires --messages-import, the module that exports the hook.');
   if (values['move-type-import']?.length && !values['messages-import']) throw usageError('--move-type-import requires --messages-import as the explicit replacement type module.');
   if (values['message-id-map'] !== undefined && !migratingProject && !codemodding) throw usageError('--message-id-map is available with nordbeam-locale migrate-project or codemod.');
   if (values['initial-locale-expression'] !== undefined && !migratingProject) throw usageError('--initial-locale-expression is available with nordbeam-locale migrate-project.');
@@ -651,7 +654,7 @@ async function main(): Promise<void> {
   if (codemodding) {
     const { codemodProject } = await loadMigrate('codemod');
     const { serializePlan } = await import('./plan-apply.js');
-    const result = await codemodProject({ root: options.root, sourceDir: values['source-dir'], format: values.format as CodemodFormat, messagesObject: values['messages-object'], messagesImport: values['messages-import'], moveTypeImports: values['move-type-import'], customCalls, messageIdBySourceFile: values['message-id-map'], write: values.write, plan: !!values.plan, strict: values.strict, requireMessagesBinding: values.strict ? true : 'warn' });
+    const result = await codemodProject({ root: options.root, sourceDir: values['source-dir'], format: values.format as CodemodFormat, messagesObject: values['messages-object'], messagesImport: values['messages-import'], messagesHook: values['messages-hook'], moveTypeImports: values['move-type-import'], customCalls, messageIdBySourceFile: values['message-id-map'], write: values.write, plan: !!values.plan, strict: values.strict, requireMessagesBinding: values.strict ? true : 'warn' });
     const { plan, ...report } = result;
     let planFile: string | undefined;
     if (values.plan && plan) {

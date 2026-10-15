@@ -14,7 +14,7 @@ The preview and the codemod report every construct they refused to rewrite as `c
 | `NESTED_TRANSLATION_CALL` | A translation call sits inside another call it cannot rewrite | Move the inner call to a variable, then migrate both. |
 | `AMBIGUOUS_BINDING` | The translation function binding is shadowed or reassigned | Bind one translation function per scope, then re-run or migrate by hand. |
 | `SOURCE_PARSE_ERROR` | The file does not parse | Fix the syntax error, then re-run. The file was not touched. |
-| `MISSING_MESSAGES_BINDING` | A rewritten file calls `m` without binding it | Bind it with the framework adapter (see [finishing.md](finishing.md)), or pass `--messages-import` for a module that exports `m`. |
+| `MISSING_MESSAGES_BINDING` | A rewritten file calls `m` without binding it | Bind it with the framework adapter (see [finishing.md](finishing.md)), or pass `--messages-import` for a module that exports `m`; when it exports a hook instead (`useMessages`), add `--messages-hook useMessages` and each `const t = useT()` becomes `const m = useMessages()`. |
 | `INCUMBENT_RUNTIME_IMPORT` | The file still imports the old runtime | Expected until the last call and provider are migrated; remove the import then. |
 
 ## Framework boundaries (always manual)

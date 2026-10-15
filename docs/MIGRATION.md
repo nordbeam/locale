@@ -222,6 +222,9 @@ left untouched. Each skip includes a stable diagnostic `code`, a plain-language
 `reason`, and a concrete `action`; compatibility files contain only the calls
 that still need a lazy legacy boundary. Repeat `--custom-call callee` or
 `--custom-call callee:namespace` for application-owned translation wrappers.
+For a wrapper that a hook returns (`const t = useT()`), add `--messages-hook
+useMessages` to `--messages-import`: the codemod replaces each such hook with
+`const m = useMessages()` and imports the hook from that module.
 Complete project migration verifies each static target against the generated
 base-catalog message IDs before writing. The codemod does not invent provider
 placement; pass `--messages-import <specifier>` (or `messagesImport` in the

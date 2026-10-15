@@ -675,7 +675,7 @@ Severity: warning.
 
 A rewritten source file calls the generated messages object without binding it first.
 
-**Fix:** Import or bind the messages object in that file, or pass --messages-import to codemod.
+**Fix:** Import or bind the messages object in that file, or pass --messages-import to codemod, with --messages-hook when that module exports a hook such as useMessages.
 
 ### MISSING_PLURAL_BRANCH
 

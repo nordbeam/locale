@@ -186,3 +186,93 @@ test('binding check accepts every declaration form that makes m visible and refu
   assert.deepEqual(rewritten, ['bound-0.ts', 'bound-1.ts', 'bound-2.ts']);
   assert.ok(result.skipped.some(item => item.code === 'MISSING_MESSAGES_BINDING' && item.file.endsWith('unbound.ts')));
 });
+
+test('under auto, a custom call is judged by one pass: values pass through without a skip', () => {
+  const source = `const t = useT();\nexport const cta = t('pricing.cta', { plan: 'Pro' });\nexport const raw = t.raw('pricing.cta');\n`;
+  const result = codemodSource(source, 'auto', { customCalls: [{ callee: 't' }] });
+  assert.match(result.code, /m\.pricing\.cta\(\{ plan: 'Pro' \}\)/);
+  // Every format pass used to judge the call: the svelte-i18n pass reported a values object as an unsupported option.
+  assert.deepEqual(result.skipped.filter(item => item.code !== undefined && item.callee === 't').map(item => item.code), []);
+  assert.equal(result.skipped.filter(item => item.callee === 't.raw').length, 1, JSON.stringify(result.skipped));
+  assert.doesNotThrow(() => codemodSource(`const t = useT();\nt('pricing.cta', { plan: 'Pro' });\n`, 'auto', { customCalls: [{ callee: 't' }], strict: true }));
+});
+
+test('a custom formatter import that loses its last name stays as a side-effect import on its own line', () => {
+  const source = `import { useT } from '~/i18n';\nimport { Button } from './button';\nexport function Page() {\n  const t = useT();\n  return <Button>{t('title')}</Button>;\n}\n`;
+  const result = codemodSource(source, 'auto', { customCalls: [{ callee: 't' }], filename: 'Page.tsx' });
+  assert.equal(result.code, `import '~/i18n';\nimport { Button } from './button';\nexport function Page() {\n  return <Button>{m.title()}</Button>;\n}\n`);
+});
+
+test('messagesHook binds the hook in place of each dead formatter hook, once per scope', () => {
+  const source = `import { useT } from "~/i18n/index.js";
+import { Button } from "./button";
+
+export function Pricing() {
+  const t = useT();
+  const inner = () => t('pricing.cta', { plan: 'Pro' });
+  return <Button onClick={inner}>{t('pricing.title')}</Button>;
+}
+
+function Footer() {
+  const t = useT(), year = 2026;
+  return <footer>{t('pricing.title')} {year}</footer>;
+}
+
+export const label = (t) => t('pricing.title');
+`;
+  const options = { customCalls: [{ callee: 't' }], filename: 'Pricing.tsx', messagesImport: '~/i18n/index.js', messagesHook: 'useMessages' };
+  const result = codemodSource(source, 'auto', options);
+  assert.equal(result.code, `import { useMessages } from "~/i18n/index.js";
+import { Button } from "./button";
+
+export function Pricing() {
+  const m = useMessages();
+  const inner = () => m.pricing.cta({ plan: 'Pro' });
+  return <Button onClick={inner}>{m.pricing.title()}</Button>;
+}
+
+function Footer() {
+  const m = useMessages(), year = 2026;
+  return <footer>{m.pricing.title()} {year}</footer>;
+}
+
+export const label = (_t) => m.pricing.title();
+`);
+  // A callback parameter has no hook to replace, so its `m` stays unbound for the project audit to report.
+  assert.equal(codemodSource(result.code, 'auto', options).code, result.code);
+  assert.throws(() => codemodSource(source, 'auto', { ...options, messagesImport: undefined }), /messagesHook requires messagesImport/);
+});
+
+test('messagesHook also binds the hook beside a formatter hook that skipped calls keep alive', () => {
+  const source = `import { useT } from './i18n';
+export function Status({ code }) {
+  const t = useT();
+  return <p>{t('status.title')} {t(\`status.\${code}\`)}</p>;
+}
+`;
+  const result = codemodSource(source, 'auto', { customCalls: [{ callee: 't' }], filename: 'Status.tsx', messagesImport: './i18n', messagesHook: 'useMessages' });
+  assert.equal(result.code, `import { useT, useMessages } from './i18n';
+export function Status({ code }) {
+  const t = useT();
+  const m = useMessages();
+  return <p>{m.status.title()} {t(\`status.\${code}\`)}</p>;
+}
+`);
+  assert.equal(result.skipped.filter(item => item.code === 'DYNAMIC_TEMPLATE_KEY' || /dynamic template/.test(item.reason)).length, 1, JSON.stringify(result.skipped));
+});
+
+test('CLI codemod --messages-hook writes hook bindings and warns only where none could be added', async t => {
+  const root = await temporary(t), directory = join(root, 'src');
+  await mkdir(directory);
+  const page = join(directory, 'Page.tsx');
+  await writeFile(page, `import { useT } from './i18n';\nexport function Page() {\n  const t = useT();\n  return <h1>{t('title')}</h1>;\n}\n`);
+  await writeFile(join(directory, 'label.ts'), `export const label = (t) => t('title');\n`);
+  const missingImport = spawnSync(process.execPath, [cli, 'codemod', '--format', 'auto', '--custom-call', 't', '--messages-hook', 'useMessages'], { cwd: root, encoding: 'utf8' });
+  assert.notEqual(missingImport.status, 0);
+  assert.match(missingImport.stderr, /--messages-hook requires --messages-import/);
+  const run = spawnSync(process.execPath, [cli, 'codemod', '--format', 'auto', '--custom-call', 't', '--messages-import', './i18n', '--messages-hook', 'useMessages', '--write', '--json'], { cwd: root, encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(await readFile(page, 'utf8'), `import { useMessages } from './i18n';\nexport function Page() {\n  const m = useMessages();\n  return <h1>{m.title()}</h1>;\n}\n`);
+  const warnings = JSON.parse(run.stdout).warnings.filter(item => item.code === 'MISSING_MESSAGES_BINDING');
+  assert.deepEqual(warnings.map(item => item.file.slice(item.file.lastIndexOf('/src/'))), ['/src/label.ts']);
+});

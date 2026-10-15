@@ -99,6 +99,12 @@ export interface CodemodSourceOptions {
   /** Optional module specifier for the generated messages object. When set,
    * the codemod adds or merges a value import only when it rewrites a call. */
   readonly messagesImport?: string;
+  /** A hook that messagesImport exports and that returns the messages object,
+   * such as `useMessages`. A formatter hook whose calls were all rewritten
+   * (`const t = useT()`) becomes `const m = useMessages()`; one that skipped
+   * calls keep alive gets `const m = useMessages();` on the next line. The
+   * hook is imported instead of the object. JavaScript and TypeScript files only. */
+  readonly messagesHook?: string;
   /** Move these named type-only imports from the selected incumbent i18n
    * package to messagesImport. This is explicit because only the application
    * adapter can guarantee that it exports a compatible replacement type. */
@@ -1427,6 +1433,12 @@ function insertMessagesImport(text: string, local: string, specifier: string): s
       return text.slice(0, defaultSpecifier.end) + ', { ' + local + ' }' + text.slice(defaultSpecifier.end);
     }
   }
+  // A side-effect import of the module becomes the named import; both run the module.
+  const bare = exact.find(item => item.importKind !== 'type' && specifiers(item).length === 0);
+  const bareSource = bare ? moduleChild(bare, 'source') : undefined;
+  if (bare?.start !== undefined && bareSource?.start !== undefined) {
+    return text.slice(0, bare.start) + 'import { ' + local + ' } from ' + text.slice(bareSource.start);
+  }
 
   const newline = text.includes('\r\n') ? '\r\n' : '\n';
   const quote = importQuote(text, exact[0] ?? imports[0]);
@@ -1657,7 +1669,7 @@ type CleanupImport = { node: AstNode; specifier: AstNode; imported?: string; loc
  * make us delete) an outer formatter binding, and exported bindings are part
  * of the public API even when their local call was lowered.
  */
-function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten: number, provenNames: readonly string[], explicitNames: readonly string[] = [], preserveImportModules: readonly string[] = []): { code: string; diagnostics: CodemodSkip[] } {
+function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten: number, provenNames: readonly string[], explicitNames: readonly string[] = [], preserveImportModules: readonly string[] = [], messagesBinding?: { readonly local: string; readonly hook: string }): { code: string; diagnostics: CodemodSkip[]; hookBindings?: number } {
   if (!rewritten) return { code: text, diagnostics: [] };
   let ast: AstNode;
   try {
@@ -1816,10 +1828,15 @@ function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten
     if (parent.type === 'ImportDeclaration') return false;
     return true;
   };
+  const unboundMessageScopes: CleanupScope[] = [];
   const collectReferences = (node: AstNode, scope: CleanupScope, parent?: AstNode): void => {
     if (node.type === 'Program') scope = scopeByNode.get(node) ?? scope;
     else if (node.type === 'BlockStatement' || node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression' || node.type === 'CatchClause') scope = scopeByNode.get(node) ?? scope;
-    if (node.type === 'Identifier' && !declarationIds.has(node) && isReference(node, parent)) resolveBinding(scope, identifierName(node)!)?.references.push(node);
+    if (node.type === 'Identifier' && !declarationIds.has(node) && isReference(node, parent)) {
+      const record = resolveBinding(scope, identifierName(node)!);
+      if (record) record.references.push(node);
+      else if (messagesBinding && identifierName(node) === messagesBinding.local) unboundMessageScopes.push(scope);
+    }
     // JSX component names are JSXIdentifier nodes, not Identifier nodes. An
     // uppercase tag (or the root of a member tag such as <Foo.Bar>) keeps an
     // imported component alive, so a remaining <Trans> must block import removal.
@@ -1865,12 +1882,14 @@ function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten
     return { start: lineStart, end: lineEnd < 0 ? end : lineEnd + 1, text: replacement.text };
   };
   const fullDeclarations = new Set<AstNode>();
+  const formatterDeclarations: typeof variableDeclarators = [];
   for (const item of variableDeclarators) {
     const call = calleeName(item.init);
     const serviceCall = call === 'inject' && children(item.init ?? {}, 'arguments').length === 1 && serviceLocals.size > 0;
     const idName = identifierName(item.id);
     const provenFactory = !!call && (factoryLocals.has(call) || (!!idName && proven.has(idName)) || (serviceCall && serviceLocals.size > 0));
     if (!provenFactory || isExported(item.declaration)) continue;
+    formatterDeclarations.push(item);
     if (item.id.type === 'Identifier') {
       const record = resolveBinding(item.scope, identifierName(item.id)!);
       if (record && !record.unsafe && !record.references.length) { record.candidate = 'local'; record.declarationNode = item.declaration; fullDeclarations.add(item.node); }
@@ -1892,10 +1911,41 @@ function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten
     if (removable) { fullDeclarations.add(item.node); continue; }
     for (const property of candidateProperties) removals.push(removeListItem(property, allProperties, item.id));
   }
+  // With a messages hook, each formatter declaration in a scope that uses the rewritten calls
+  // gets the hook's binding: a dead `const t = useT()` turns into `const m = useMessages()`,
+  // and one that dynamic calls keep alive gets `const m = useMessages();` on the next line.
+  // One binding per scope chain; an awaited server factory is never a hook.
+  const encloses = (outer: CleanupScope, inner: CleanupScope): boolean => {
+    for (let current: CleanupScope | undefined = inner; current; current = current.parent) if (current === outer) return true;
+    return false;
+  };
+  const hookScopes: CleanupScope[] = [], hookTargets = new Map<AstNode, 'replace' | 'insert'>();
+  if (messagesBinding) for (const item of [...formatterDeclarations].sort((left, right) => left.node.start! - right.node.start!)) {
+    if (item.init?.type !== 'CallExpression' || resolveBinding(item.scope, messagesBinding.local)) continue;
+    if (!unboundMessageScopes.some(scope => encloses(item.scope, scope)) || hookScopes.some(scope => encloses(scope, item.scope))) continue;
+    const replace = fullDeclarations.has(item.node), parent = parentByNode.get(item.declaration);
+    if (!replace && parent?.type !== 'BlockStatement' && parent?.type !== 'Program') continue;
+    hookScopes.push(item.scope);
+    hookTargets.set(item.node, replace ? 'replace' : 'insert');
+  }
+  for (const [declarator, target] of hookTargets) {
+    if (target !== 'insert') continue;
+    const declaration = parentByNode.get(declarator)!;
+    const end = text[declaration.end!] === ';' ? declaration.end! + 1 : declaration.end!;
+    const lineStart = text.lastIndexOf('\n', declaration.start! - 1) + 1, indent = text.slice(lineStart, declaration.start!);
+    removals.push({ start: end, end, text: `\n${/^[ \t]*$/.test(indent) ? indent : ''}const ${messagesBinding!.local} = ${messagesBinding!.hook}();` });
+  }
   for (const declarator of fullDeclarations) {
     const declaration = parentByNode.get(declarator)!;
     if (!declaration || declaration.type !== 'VariableDeclaration') continue;
     const list = children(declaration, 'declarations');
+    if (hookTargets.get(declarator) === 'replace') {
+      const binding = `${messagesBinding!.local} = ${messagesBinding!.hook}()`;
+      if (list.length > 1) { removals.push({ start: declarator.start!, end: declarator.end!, text: binding }); continue; }
+      const end = text[declaration.end!] === ';' ? declaration.end! + 1 : declaration.end!;
+      removals.push({ start: declaration.start!, end, text: `${String(declaration.kind)} ${binding}${text[end - 1] === ';' ? ';' : ''}` });
+      continue;
+    }
     const replacement = removeListItem(declarator, list, declaration);
     if (list.length === 1) { replacement.start = declaration.start!; replacement.end = declaration.end!; if (text[replacement.end] === ';') replacement.end++; }
     if (list.length === 1) Object.assign(replacement, trimWholeLine(replacement));
@@ -1945,7 +1995,12 @@ function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten
       // For an application-owned custom formatter import, retain module side
       // effects when its final named specifier became dead. Known framework
       // imports are side-effect-free runtime adapters and may be removed whole.
-      if (hasCustomImport && !allFramework) replacement.text = `import ${JSON.stringify(group[0]!.item.module)};`;
+      // The kept import takes the line it replaces, newline and quotes included.
+      if (hasCustomImport && !allFramework) {
+        const source = child(declaration, 'source');
+        const specifier = source?.start !== undefined && source.end !== undefined ? text.slice(source.start, source.end) : JSON.stringify(group[0]!.item.module);
+        replacement.text = `import ${specifier};${text[replacement.end - 1] === '\n' ? '\n' : ''}`;
+      }
       removals.push(replacement);
       continue;
     }
@@ -1989,9 +2044,10 @@ function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten
   }
   if (!removals.length) return { code: text, diagnostics: renameDiagnostics };
   removals.sort((left, right) => right.start - left.start);
+  const hookBindings = hookScopes.length;
   let result = text;
   for (const replacement of removals) result = result.slice(0, replacement.start) + replacement.text + result.slice(replacement.end);
-  try { parse(result, { sourceType: 'unambiguous', errorRecovery: false, plugins: ['typescript', 'jsx', 'decorators-legacy', 'importAttributes'] }); return { code: result, diagnostics: renameDiagnostics }; }
+  try { parse(result, { sourceType: 'unambiguous', errorRecovery: false, plugins: ['typescript', 'jsx', 'decorators-legacy', 'importAttributes'] }); return { code: result, diagnostics: renameDiagnostics, hookBindings }; }
   catch { return { code: text, diagnostics: [] }; }
 }
 
@@ -2026,6 +2082,8 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   const root = options.messagesObject ?? 'm';
   if (!identifier.test(root)) throw new TypeError('messagesObject must be a JavaScript identifier.');
   if (options.moveTypeImports?.length && options.messagesImport === undefined) throw new TypeError('moveTypeImports requires messagesImport so the replacement type module is explicit.');
+  if (options.messagesHook !== undefined && !identifier.test(options.messagesHook)) throw new TypeError('messagesHook must be a JavaScript identifier.');
+  if (options.messagesHook !== undefined && options.messagesImport === undefined) throw new TypeError('messagesHook requires messagesImport, the module that exports the hook.');
   const mask = codeMask(text), replacements: Replacement[] = [], skipped: CodemodSkip[] = [], occupied = new Set<string>();
   // Only Svelte files get the narrow template overlay. Keeping the filename
   // gate here is important: a JavaScript/TypeScript string that happens to
@@ -2057,10 +2115,21 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   }
   const normalized = normalizeFormat(format);
   const formats = normalized === 'auto' ? concreteFormats : [normalized as Exclude<CodemodFormat, 'auto'>];
-  const bindingSets = formats.map(activeFormat => ({ activeFormat, bindings: mergeBindings(bindings(text, activeFormat, skipped), options.customCalls ?? []) }));
+  const native = formats.map(activeFormat => ({ activeFormat, bindings: bindings(text, activeFormat, skipped) }));
+  // Each custom call belongs to one pass. Under `auto` that is the format that detected
+  // the same callee, or else a pass of its own that passes values through unchanged.
+  // Merged into every format, one pass rewrote a call and the others reported it as
+  // unsupported (svelte-i18n's values wrapper, i18next's default values).
+  const customCalls = options.customCalls ?? [];
+  const owner = (call: CustomTranslationCall): Exclude<CodemodFormat, 'auto'> | undefined => normalized === 'auto'
+    ? native.find(set => set.bindings.some(binding => binding.callee === call.callee))?.activeFormat
+    : formats[0];
+  const bindingSets: { activeFormat: Exclude<CodemodFormat, 'auto'> | undefined; bindings: Binding[] }[] = native.map(({ activeFormat, bindings: found }) => ({ activeFormat, bindings: mergeBindings(found, customCalls.filter(call => owner(call) === activeFormat)) }));
+  const unowned = customCalls.filter(call => owner(call) === undefined);
+  if (unowned.length) bindingSets.push({ activeFormat: undefined, bindings: mergeBindings([], unowned) });
   const allBindings = bindingSets.flatMap(item => item.bindings);
   const customBinding = (binding: Binding): boolean => binding.provenance === 'custom' && !binding.ambiguous;
-  for (const { activeFormat } of bindingSets) angularServiceDiagnostics(text, activeFormat, skipped, parsedCallStarts);
+  for (const { activeFormat } of native) angularServiceDiagnostics(text, activeFormat, skipped, parsedCallStarts);
   for (const { activeFormat, bindings: activeBindings } of bindingSets) for (const binding of activeBindings) {
     // `$t(` is a different identifier from a binding named `t`, even though
     // `\b` treats the `$` as a boundary. Vue templates rely on that distinction.
@@ -2231,7 +2300,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       for (const match of text.matchAll(new RegExp(`\\b${escaped}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)\\s*\\(`, 'g'))) {
         if (parsedCallStarts && !parsedCallStarts.has(match.index!)) continue;
         if (allowedMembers.has(match[1]!)) continue;
-        skipped.push({ callee: `${binding.callee}.${match[1]}`, reason: `${activeFormat} translation helper member is not supported by the generated messages object; migrate this member manually`, offset: match.index });
+        skipped.push({ callee: `${binding.callee}.${match[1]}`, reason: `${activeFormat ?? 'custom'} translation helper member is not supported by the generated messages object; migrate this member manually`, offset: match.index });
       }
     }
   }
@@ -2332,19 +2401,23 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   // Only clean bindings after at least one call was actually lowered. This
   // keeps previews idempotent and avoids deleting a possibly intentional
   // framework hook in an otherwise untouched source file.
+  let hookBindings = 0;
   if (appliedReplacements.length && options.cleanup !== false && (scriptLike || options.filename?.toLowerCase().endsWith('.svelte'))) {
     const cleanup = scriptLike
-      ? cleanupFormatterBindings(code, format, appliedReplacements.length, allBindings.map(binding => binding.callee.split('.')[0]!), (options.customCalls ?? []).map(call => call.callee.split('.')[0]!))
+      ? cleanupFormatterBindings(code, format, appliedReplacements.length, allBindings.map(binding => binding.callee.split('.')[0]!), (options.customCalls ?? []).map(call => call.callee.split('.')[0]!), [], options.messagesHook === undefined ? undefined : { local: root, hook: options.messagesHook })
       : cleanupSvelteFormatterBindings(code, format, appliedReplacements.length, allBindings.map(binding => binding.callee.split('.')[0]!), (options.customCalls ?? []).map(call => call.callee.split('.')[0]!));
     code = cleanup.code;
+    hookBindings = (cleanup as { hookBindings?: number }).hookBindings ?? 0;
     skipped.push(...cleanup.diagnostics);
   }
   // Importing the generated messages object is deliberately opt-in. Apply it
   // only after all call rewrites and binding cleanup so a failed parse can
   // restore the original bytes atomically instead of leaving an unbound `m`.
-  if (appliedReplacements.length && options.messagesImport !== undefined) {
+  // With a hook, the hook is imported, and only when a declaration became its binding;
+  // calls outside such a scope stay unbound and are reported as MISSING_MESSAGES_BINDING.
+  if (appliedReplacements.length && options.messagesImport !== undefined && (options.messagesHook === undefined || hookBindings > 0)) {
     try {
-      code = ensureMessagesImport(code, options.filename, root, options.messagesImport);
+      code = ensureMessagesImport(code, options.filename, options.messagesHook ?? root, options.messagesImport);
       validateCodemodOutput(code, options.filename);
     } catch (error) {
       skipped.push({ callee: '(messages-import)', reason: `messages import could not be added; no rewrites applied: ${(error as Error).message}` });
@@ -2523,7 +2596,7 @@ async function replaceFiles(files: Map<string, string>): Promise<void> {
 /** Preview or apply conservative source rewrites. Imports/providers remain an
  * explicit framework migration step unless callers opt into messagesImport;
  * only proven calls with static IDs move. */
-export async function codemodProject(options: { root?: string; sourceDir?: string; format: CodemodFormat; messagesObject?: string; messagesImport?: string; moveTypeImports?: readonly string[]; customCalls?: readonly CustomTranslationCall[]; messageIds?: readonly string[] | ReadonlySet<string>; messageIdBySource?: ReadonlyMap<string, string> | Readonly<Record<string, string>>; messageIdBySourceFile?: string; write?: boolean; plan?: boolean; strict?: boolean;
+export async function codemodProject(options: { root?: string; sourceDir?: string; format: CodemodFormat; messagesObject?: string; messagesImport?: string; messagesHook?: string; moveTypeImports?: readonly string[]; customCalls?: readonly CustomTranslationCall[]; messageIds?: readonly string[] | ReadonlySet<string>; messageIdBySource?: ReadonlyMap<string, string> | Readonly<Record<string, string>>; messageIdBySourceFile?: string; write?: boolean; plan?: boolean; strict?: boolean;
   /** Standalone CLI runs have no framework integration to bind the generated
    * object. `true` refuses a rewrite that would reference an unbound `m` per
    * file; `'warn'` applies it and reports MISSING_MESSAGES_BINDING in
@@ -2552,7 +2625,7 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
     // every replacement uses offsets from one revision. At project level we
     // can safely reparse the exact output and converge in one reviewed run.
     for (;;) {
-      result = codemodSource(code, options.format, { messagesObject: options.messagesObject, messagesImport: options.messagesImport, moveTypeImports: options.moveTypeImports, filename: file, customCalls: options.customCalls, messageIds: options.messageIds, messageIdBySource: sourceIds });
+      result = codemodSource(code, options.format, { messagesObject: options.messagesObject, messagesImport: options.messagesImport, messagesHook: options.messagesHook, moveTypeImports: options.moveTypeImports, filename: file, customCalls: options.customCalls, messageIds: options.messageIds, messageIdBySource: sourceIds });
       replacements += result.replacements;
       typeImportsMoved += result.typeImportsMoved;
       if (result.code === code) break;
@@ -2564,8 +2637,9 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
     // Without messagesImport the codemod cannot add the generated binding, so
     // a rewrite that introduces an unbound `m` would compile-fail while still
     // reporting success. Leave such a file unchanged and say why; preview and
-    // write share this decision.
-    if (options.requireMessagesBinding && !options.messagesImport && code !== source) {
+    // write share this decision. A hook binds `m` only in the scopes of the
+    // declarations it replaced, so those files are audited too.
+    if (options.requireMessagesBinding && (!options.messagesImport || options.messagesHook) && code !== source) {
       const messagesObject = options.messagesObject ?? 'm';
       const before = messageBindingAudit(source, messagesObject, file), after = messageBindingAudit(code, messagesObject, file);
       if (before && after && after.unbound > before.unbound) {
@@ -2605,7 +2679,7 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
   if (options.write) await replaceFiles(outputs);
   const plan = options.plan ? await createPlan({ root, operation: {
     command: 'codemod', format: options.format, sourceDir: relative(root, sourceDir).replaceAll('\\', '/'),
-    messagesObject: options.messagesObject ?? null, messagesImport: options.messagesImport ?? null, moveTypeImports: options.moveTypeImports ?? [],
+    messagesObject: options.messagesObject ?? null, messagesImport: options.messagesImport ?? null, ...(options.messagesHook === undefined ? {} : { messagesHook: options.messagesHook }), moveTypeImports: options.moveTypeImports ?? [],
   }, changes: [...outputs].map(([file, content]) => ({ path: relative(root, file).replaceAll('\\', '/'), content })) }) : undefined;
   const replacements = changed.reduce((sum, item) => sum + item.replacements, 0);
   const typeImportsMoved = changed.reduce((sum, item) => sum + item.typeImportsMoved, 0);

@@ -577,7 +577,9 @@ npx nordbeam-locale codemod --format lingui --source-dir src --message-id-map so
 Source migration parses JavaScript and TypeScript call spans before changing
 them, accepts static quoted or template-literal keys, and reports dynamic keys
 without guessing. Repeat `--custom-call translator` or
-`--custom-call translator:namespace` for application-owned wrappers. Complete
+`--custom-call translator:namespace` for application-owned wrappers. When the
+wrapper comes from a hook (`const t = useT()`), add `--messages-import <module>
+--messages-hook useMessages`: each hook becomes `const m = useMessages()`. Complete
 project runs also lower finite conditional keys and converge nested calls in one
 reviewed operation. Every unresolved construct carries a stable diagnostic code
 and a suggested action. When an application adapter deliberately exports an

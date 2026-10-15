@@ -24,6 +24,7 @@ export interface CodemodProjectOptions {
   readonly format: CodemodFormat;
   readonly messagesObject?: string;
   readonly messagesImport?: string;
+  readonly messagesHook?: string;
   readonly moveTypeImports?: readonly string[];
   readonly customCalls?: readonly { readonly callee: string; readonly namespace?: string }[];
   readonly messageIdBySourceFile?: string;
