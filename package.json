@@ -247,7 +247,7 @@
     "@tanstack/react-start": "1.169.2",
     "@tolgee/core": "7.2.0",
     "@tolgee/format-icu": "7.2.0",
-    "@types/gettext-parser": "4.0.4",
+    "@types/gettext-parser": "9.0.0",
     "@types/node": "26.4.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
@@ -281,8 +281,8 @@
     "vue-i18n": "11.4.8"
   },
   "dependencies": {
-    "@formatjs/icu-messageformat-parser": "3.5.17",
+    "@formatjs/icu-messageformat-parser": "3.5.21",
     "@jridgewell/sourcemap-codec": "1.6.0",
-    "magic-string": "1.2.3"
+    "magic-string": "1.4.3"
   }
 }
