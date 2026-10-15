@@ -1,0 +1,14 @@
+{
+  "eyebrow": "Nordbeam Locale / aperçu du compilateur",
+  "title": "Peu de code. Plusieurs langues.",
+  "description": "Ces messages sont compilés en JavaScript. Changez de langue pour charger une autre traduction.",
+  "greeting": "Bonjour, {name}.",
+  "richNote": "Conçu pour <strong>{name}</strong>. <link>Détails de traduction</link>.",
+  "items": "{count, plural, =0 {Votre panier est vide.} one {Vous avez # article.} other {Vous avez # articles.}}",
+  "total": "Total : {amount, number, ::currency/USD .00}",
+  "nameLabel": "Votre nom",
+  "countLabel": "Articles dans votre panier",
+  "localeLabel": "Langue",
+  "status": "Langue chargée : {locale}",
+  "note": "Modifiez un message dans le catalogue pour voir Vite mettre à jour cette page."
+}

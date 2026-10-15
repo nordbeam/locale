@@ -1,0 +1,9 @@
+{
+  "title": "دعم TanStack Start",
+  "greeting": "مرحبًا {name}!",
+  "items": "{count, plural, zero {لا عناصر} one {عنصر واحد} two {عنصران} few {# عناصر} many {# عنصرًا} other {# عنصر}}",
+  "about": "حول هذا التطبيق",
+  "post": "المقال {slug}",
+  "fromServer": "دالة الخادم: {greeting}",
+  "unused": "UNUSED_TANSTACK_SENTINEL"
+}

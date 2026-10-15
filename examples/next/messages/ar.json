@@ -1,0 +1,7 @@
+{
+  "title": "دعم Next.js",
+  "greeting": "مرحبًا {name}!",
+  "items": "{count, plural, zero {لا عناصر} one {عنصر واحد} two {عنصران} few {# عناصر} many {# عنصرًا} other {# عنصر}}",
+  "richNote": "يُعرض على <strong>الخادم</strong>.",
+  "unused": "UNUSED_NEXT_SENTINEL"
+}

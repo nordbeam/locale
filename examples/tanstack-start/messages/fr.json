@@ -1,0 +1,9 @@
+{
+  "title": "Prise en charge de TanStack Start",
+  "greeting": "Bonjour {name} !",
+  "items": "{count, plural, one {# article} other {# articles}}",
+  "about": "À propos de cette application",
+  "post": "Article {slug}",
+  "fromServer": "Fonction serveur : {greeting}",
+  "unused": "UNUSED_TANSTACK_SENTINEL"
+}

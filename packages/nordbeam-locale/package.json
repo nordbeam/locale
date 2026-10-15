@@ -1,0 +1,38 @@
+{
+  "name": "nordbeam-locale",
+  "version": "0.2.0",
+  "description": "The nordbeam-locale CLI for npx. It runs the CLI of @nordbeam/locale; add @nordbeam/locale to your project instead of this package.",
+  "keywords": [
+    "i18n",
+    "cli",
+    "nordbeam-locale"
+  ],
+  "license": "Apache-2.0",
+  "author": "Nordbeam",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nordbeam/locale.git",
+    "directory": "packages/nordbeam-locale"
+  },
+  "bugs": {
+    "url": "https://github.com/nordbeam/locale/issues"
+  },
+  "homepage": "https://github.com/nordbeam/locale#readme",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "cli.js",
+    "NOTICE"
+  ],
+  "bin": {
+    "nordbeam-locale": "./cli.js"
+  },
+  "dependencies": {
+    "@nordbeam/locale": "0.2.0"
+  }
+}

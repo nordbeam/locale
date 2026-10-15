@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Pack and run `npm publish --dry-run` without publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # npm trusted publishing (OIDC); provenance is added once the repository is public
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+      - run: npm ci
+      - name: Check that the release tag matches every package version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          node -e "
+            const tag = process.env.TAG.replace(/^v/, '');
+            const core = require('./package.json');
+            const migrate = require('./packages/locale-migrate/package.json');
+            const npx = require('./packages/nordbeam-locale/package.json');
+            const problems = [];
+            if (core.version !== tag) problems.push('@nordbeam/locale is ' + core.version);
+            if (migrate.version !== tag) problems.push('@nordbeam/locale-migrate is ' + migrate.version);
+            if (migrate.peerDependencies['@nordbeam/locale'] !== tag) problems.push('@nordbeam/locale-migrate peers on @nordbeam/locale ' + migrate.peerDependencies['@nordbeam/locale']);
+            if (npx.version !== tag) problems.push('nordbeam-locale is ' + npx.version);
+            if (npx.dependencies['@nordbeam/locale'] !== tag) problems.push('nordbeam-locale depends on @nordbeam/locale ' + npx.dependencies['@nordbeam/locale']);
+            if (problems.length) { console.error('Tag ' + process.env.TAG + ' does not match: ' + problems.join('; ')); process.exit(1); }
+          "
+      - run: npm test
+      - name: Publish to npm
+        env:
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry-run) && '--dry-run' || '' }}
+          # Trusted publishing authenticates through OIDC; the token is only a fallback.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # @nordbeam/locale goes first because the other two require it at the same
+          # version. A version that is already on npm (a rerun, or a manual first
+          # publish) is skipped instead of failing the release.
+          for dir in . ./packages/locale-migrate ./packages/nordbeam-locale; do
+            spec=$(node -p "const p = require('$dir/package.json'); p.name + '@' + p.version")
+            if npm view "$spec" version >/dev/null 2>&1; then
+              echo "$spec is already on npm"
+            else
+              npm publish "$dir" --access public $DRY_RUN
+            fi
+          done

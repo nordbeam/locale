@@ -1,0 +1,14 @@
+{
+  "eyebrow": "Nordbeam Locale / معاينة المترجم البرمجي",
+  "title": "شيفرة صغيرة. لغات عديدة.",
+  "description": "تُحوَّل هذه الرسائل إلى JavaScript. غيّر اللغة لتحميل ترجمة أخرى.",
+  "greeting": "مرحباً، {name}.",
+  "richNote": "صُمّم من أجل <strong>{name}</strong>. <link>تفاصيل الترجمة</link>.",
+  "items": "{count, plural, zero {سلتك فارغة.} one {لديك عنصر واحد.} two {لديك عنصران.} few {لديك # عناصر.} many {لديك # عنصراً.} other {لديك # عنصر.}}",
+  "total": "المجموع: {amount, number, ::currency/USD .00}",
+  "nameLabel": "اسمك",
+  "countLabel": "العناصر في سلتك",
+  "localeLabel": "اللغة",
+  "status": "اللغة المحمّلة: {locale}",
+  "note": "عدّل رسالة في ملف الترجمة لتشاهد Vite يحدّث هذه الصفحة."
+}

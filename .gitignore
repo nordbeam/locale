@@ -1,0 +1,25 @@
+node_modules
+dist/
+target/
+*.heapsnapshot
+*.heapprofile
+*.cpuprofile
+*.tgz
+examples/vite/src/i18n/
+examples/vite/dist/
+research/
+test/integration/generated/
+.DS_Store
+.scratch/
+examples/react/src/i18n/
+examples/react/dist/
+examples/next/src/i18n/
+examples/next/.next/
+.svelte-kit/
+examples/tanstack-start/src/i18n/
+examples/tanstack-start/src/routeTree.gen.ts
+examples/tanstack-start/dist/
+examples/tanstack-start/.tanstack/
+.claude/worktrees/
+# Earlier compiler builds that test/ compares output against.
+!test/baselines/*/dist/

@@ -1,0 +1,29 @@
+{
+  "name": "nordbeam",
+  "description": "Agent skills for Nordbeam Locale, the typed ICU message compiler: setting it up, writing messages, and migrating from other i18n libraries.",
+  "owner": {
+    "name": "Nordbeam",
+    "url": "https://github.com/nordbeam"
+  },
+  "plugins": [
+    {
+      "name": "nordbeam-locale",
+      "description": "Use Nordbeam Locale (@nordbeam/locale) correctly: framework setup, ICU catalogs, the generated typed API, the check, generate, verify loop, and migrating from i18next, next-intl, FormatJS, Lingui, vue-i18n and more.",
+      "source": "./",
+      "strict": false,
+      "category": "development",
+      "tags": ["i18n", "l10n", "icu", "translations", "typescript"],
+      "homepage": "https://github.com/nordbeam/locale",
+      "repository": "https://github.com/nordbeam/locale",
+      "license": "Apache-2.0",
+      "author": {
+        "name": "Nordbeam",
+        "url": "https://github.com/nordbeam"
+      },
+      "skills": [
+        "./skills/nordbeam-locale",
+        "./skills/nordbeam-locale-migrate"
+      ]
+    }
+  ]
+}

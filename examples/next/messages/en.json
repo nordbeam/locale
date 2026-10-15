@@ -1,0 +1,7 @@
+{
+  "title": "Next.js support",
+  "greeting": "Hello {name}!",
+  "items": "{count, plural, one {# item} other {# items}}",
+  "richNote": "Rendered on the <strong>server</strong>.",
+  "unused": "UNUSED_NEXT_SENTINEL"
+}

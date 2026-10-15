@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in @nordbeam/locale or @nordbeam/locale-migrate doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A small reproduction (a catalog, the config, and the command or import you ran) is the fastest way to a fix.
+        Security problems go through the [security policy](https://github.com/nordbeam/locale/security/policy), not public issues.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Include the full output, or the `--json` result for CLI commands.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: A link to a repository, or the smallest catalog, `nordbeam-locale.config.json`, and source that shows the problem.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Compiler / generated output
+        - CLI (check, generate, verify, init)
+        - Vite plugin
+        - React
+        - Next.js
+        - TanStack Start
+        - Vue
+        - Svelte
+        - Solid
+        - Migration / codemods (@nordbeam/locale-migrate)
+        - Agent tooling / MCP / skills
+        - VS Code extension
+        - Documentation
+  - type: input
+    id: version
+    attributes:
+      label: Nordbeam Locale version
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, OS, package manager, and framework/bundler versions (Vite, Next.js, React, ...).
+      render: text

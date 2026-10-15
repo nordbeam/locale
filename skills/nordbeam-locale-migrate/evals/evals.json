@@ -1,0 +1,86 @@
+{
+  "skill_name": "nordbeam-locale-migrate",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Migrate our Vite + React app from react-i18next to Nordbeam Locale. Catalogs are in src/locales/en.json and src/locales/fr.json, source is in src. The app mostly uses t('namespace.key', { name }) with a few <Trans> components and one t(`status.${state}`).",
+      "expected_output": "A reviewed preview, an applied migration, finished bindings, resolved skipped constructs and a passing verify.",
+      "files": [],
+      "expectations": [
+        "Installs @nordbeam/locale and @nordbeam/locale-migrate at the same version before running migrate-project",
+        "Runs migrate-project with --format react-i18next --framework vite-react --source-dir src and --json WITHOUT --write first, and summarises counts and skipped codes for the user",
+        "Passes --initial-locale-expression (or asks which expression holds the initial locale) instead of guessing it",
+        "Notices the dynamic key (DYNAMIC_MESSAGE_KEY) and the <Trans> components (RICH_MESSAGE) in the preview and handles them deliberately (explicit map of literal keys, ICU rich tags with rich())",
+        "Only applies with --write after the preview, then runs generate, check and finds files where the rewritten m is not bound and binds it with i18n.useI18n()",
+        "Replaces the i18next provider and init code with the Nordbeam provider and changeLanguage with setLocale",
+        "Does not delete legacy catalogs or the i18next dependency before verify passes and the user agrees",
+        "Ends with verify --json exit status 0 and a summary of what was migrated automatically versus by hand"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We want to move our Next.js App Router app from next-intl to Nordbeam Locale. messages/en.json and messages/de.json, routes in src/app/[locale], src/middleware.ts uses next-intl/middleware, next.config.mjs uses createNextIntlPlugin.",
+      "expected_output": "migrate-project previewed and applied for next, then the middleware, routing, config and server components finished by hand, with exactly one request file.",
+      "files": [],
+      "expectations": [
+        "Previews with migrate-project --format next-intl --framework next before applying",
+        "After --write, binds m in server components with i18n.hasLocale and await i18n.loadLocale(locale) where the report says the shape was not conventional",
+        "Ends with exactly one request file beside src/app (moves or removes the scaffolded root proxy.ts and the old next-intl middleware.ts)",
+        "Rewrites the routing module with defineRouting from @nordbeam/locale/next/routing and replaces createNextIntlPlugin with withNordbeamLocale",
+        "Converts t.rich usage to rich() with ICU tags",
+        "Runs generate, check, a production build or type-check, and verify --json"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Convert our vue-i18n catalogs (src/locales/en.json, fr.json) to Nordbeam Locale. Some messages look like 'no apples | one apple | {count} apples' and 'Hi {0} and {1}'.",
+      "expected_output": "The agent catches that vue-i18n pipe plurals and positional placeholders are copied verbatim and converts them to ICU by hand.",
+      "files": [],
+      "expectations": [
+        "Previews migrate-project with --format vue-i18n --framework vue",
+        "Searches the migrated catalogs for pipe plurals, @: links and {0}-style placeholders because the tool does not convert them",
+        "Converts the pipe plural to an ICU plural with =0, one and other branches in every locale",
+        "Renames {0} {1} to named arguments and updates call sites",
+        "Binds m through i18n.useI18n() with messages as a ref (m.value in script, m in template) and replaces the vue-i18n plugin with the Nordbeam Vue adapter",
+        "Runs check --strict and verify --json"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Our translators gave us a French PO file (locales/fr.po) from our old gettext setup and an English one. Get them into Nordbeam Locale.",
+      "expected_output": "Catalogs converted with migrate --format po, warnings about sentence IDs and printf placeholders handled.",
+      "files": [],
+      "expectations": [
+        "Runs migrate (or migrate-project with --catalog-format po) with --dry-run --json and reads the converted output and warnings first",
+        "Does not use the import command for a foreign PO file",
+        "Handles DOTTED_SOURCE_ID / sentence IDs (renames to semantic IDs or uses an ID map) and renames printf-converted arguments",
+        "Writes to a new --out path, never overwriting an existing catalog",
+        "Runs generate, check --strict and verify --json"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Our Angular app uses Transloco. Can you migrate it to Nordbeam Locale?",
+      "expected_output": "The agent explains that Angular has codemods only (no runtime adapter) and confirms scope before changing anything.",
+      "files": [],
+      "expectations": [
+        "States that Nordbeam Locale has no Angular runtime adapter before making changes",
+        "If proceeding, uses --format transloco with --catalog-format i18next because of {{name}} interpolation and omits --framework",
+        "Does not remove the Transloco runtime or providers automatically",
+        "Lists the manual work (DI wiring, templates, bootstrap) from the report"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Run the Nordbeam codemod on our react-intl code and apply it, I'm in a hurry.",
+      "expected_output": "The agent still previews, reviews skipped constructs and uses a plan or preview before writing.",
+      "files": [],
+      "expectations": [
+        "Runs a preview (no --write) or writes a reviewed plan with --plan before applying",
+        "Reports skipped constructs and manual actions to the user before applying",
+        "Applies with apply-plan --from or --write only after the review, and checks for unbound m afterwards",
+        "Ends with generate, check and verify --json"
+      ]
+    }
+  ]
+}

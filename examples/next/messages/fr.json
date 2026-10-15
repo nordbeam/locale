@@ -1,0 +1,7 @@
+{
+  "title": "Prise en charge de Next.js",
+  "greeting": "Bonjour {name} !",
+  "items": "{count, plural, one {# article} other {# articles}}",
+  "richNote": "Rendu sur le <strong>serveur</strong>.",
+  "unused": "UNUSED_NEXT_SENTINEL"
+}

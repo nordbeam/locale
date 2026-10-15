@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nordbeam Locale compiler preview</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p id="eyebrow" class="eyebrow">Nordbeam Locale</p>
+        <h1 id="title"></h1>
+        <p id="description" class="description"></p>
+      </header>
+      <section class="controls" aria-label="Message inputs">
+        <label><span id="locale-label">Language</span><select id="locale"><option value="en">English</option><option value="fr">Français</option><option value="ar">العربية</option></select></label>
+        <label><span id="name-label">Your name</span><input id="name" value="Ada" /></label>
+        <label><span id="count-label">Items</span><input id="count" type="number" min="0" max="10000" step="1" value="3" /></label>
+      </section>
+      <section class="preview" aria-live="polite">
+        <h2 id="greeting"></h2>
+        <p id="items"></p>
+        <p id="total" class="total"></p>
+      </section>
+      <footer><span id="status"></span><p id="note"></p><p id="error" role="alert"></p></footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

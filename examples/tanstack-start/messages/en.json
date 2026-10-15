@@ -1,0 +1,9 @@
+{
+  "title": "TanStack Start support",
+  "greeting": "Hello {name}!",
+  "items": "{count, plural, one {# item} other {# items}}",
+  "about": "About this app",
+  "post": "Post {slug}",
+  "fromServer": "Server function: {greeting}",
+  "unused": "UNUSED_TANSTACK_SENTINEL"
+}

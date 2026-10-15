@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node-version: ['22.12.x', '24.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # A hung test fails with its name after two minutes instead of stalling the job.
+      - run: node --test --test-timeout=120000 test/*.test.mjs
+      - run: node --conditions=browser --test test/solid-client.test.mjs
+
+  integration:
+    name: integration (examples, React, Next, VS Code)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run vscode:check
+
+  package:
+    name: package contents
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Dry-run pack both packages and reject development-only files
+        run: |
+          npm pack --dry-run --json --ignore-scripts > core.json
+          npm pack --dry-run --json --ignore-scripts --workspace packages/locale-migrate > migrate.json
+          node -e "
+            const fs = require('fs');
+            const forbidden = /^(research|test|examples|editors|packages)\//;
+            for (const [label, file, entry] of [['@nordbeam/locale', 'core.json', 'dist/index.js'], ['@nordbeam/locale-migrate', 'migrate.json', 'dist/index.js']]) {
+              const [report] = JSON.parse(fs.readFileSync(file, 'utf8'));
+              const paths = report.files.map(item => item.path);
+              const leaked = paths.filter(path => forbidden.test(path));
+              if (leaked.length > 0) { console.error(label + ': development-only files in the tarball:\n' + leaked.join('\n')); process.exit(1); }
+              if (!paths.includes(entry)) { console.error(label + ': ' + entry + ' is missing from the tarball'); process.exit(1); }
+              console.log(label + ': ' + paths.length + ' files, ' + report.unpackedSize + ' bytes unpacked.');
+            }
+          "

@@ -1,0 +1,82 @@
+{
+  "name": "@nordbeam/locale-migrate",
+  "version": "0.2.0",
+  "description": "Migration tools for @nordbeam/locale: convert i18next, next-intl, FormatJS, Lingui, Tolgee and other catalogs and source calls",
+  "keywords": [
+    "i18n",
+    "migration",
+    "codemod",
+    "i18next",
+    "next-intl",
+    "formatjs",
+    "lingui",
+    "tolgee",
+    "nordbeam-locale"
+  ],
+  "license": "Apache-2.0",
+  "author": "Nordbeam",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nordbeam/locale.git",
+    "directory": "packages/locale-migrate"
+  },
+  "bugs": {
+    "url": "https://github.com/nordbeam/locale/issues"
+  },
+  "homepage": "https://github.com/nordbeam/locale#readme",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src",
+    "NOTICE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./codemods": {
+      "types": "./dist/codemods.d.ts",
+      "import": "./dist/codemods.js"
+    },
+    "./project": {
+      "types": "./dist/migrate-project.d.ts",
+      "import": "./dist/migrate-project.js"
+    },
+    "./next": {
+      "types": "./dist/migrate-next.d.ts",
+      "import": "./dist/migrate-next.js"
+    },
+    "./react": {
+      "types": "./dist/migrate-react.d.ts",
+      "import": "./dist/migrate-react.js"
+    },
+    "./frameworks": {
+      "types": "./dist/migrate-frameworks.d.ts",
+      "import": "./dist/migrate-frameworks.js"
+    },
+    "./catalog": {
+      "types": "./dist/catalog.d.ts",
+      "import": "./dist/catalog.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@nordbeam/locale": "0.2.0"
+  },
+  "dependencies": {
+    "@babel/parser": "7.29.8",
+    "fast-xml-parser": "5.7.0",
+    "gettext-parser": "8.0.0",
+    "yaml": "2.8.3"
+  }
+}

@@ -1,0 +1,22 @@
+[
+  { "query": "add a language switcher to the header, we use @nordbeam/locale with vite and react (messages/en.json and messages/fr.json already exist)", "should_trigger": true },
+  { "query": "there's a nordbeam-locale.config.json in the repo root. can you add german translations for everything in messages/en.json?", "should_trigger": true },
+  { "query": "nordbeam-locale verify is failing in CI with GENERATED_STALE and I'm not sure what to do", "should_trigger": true },
+  { "query": "we picked Nordbeam Locale for i18n. set it up in our Next.js app router project with en and es", "should_trigger": true },
+  { "query": "write an ICU plural message for '{count} comments' in en and pl in our messages folder, we compile catalogs with nordbeam", "should_trigger": true },
+  { "query": "how do I pass a currency amount and a date into a message in src/i18n? the generated m.invoice.total({amount}) type says number but I have a string", "should_trigger": true },
+  { "query": "add Arabic and make the layout RTL, the app already uses @nordbeam/locale/next with a [locale] route", "should_trigger": true },
+  { "query": "the app uses createVueI18n from @nordbeam/locale/vue; setLocale('de') leaves the old language on screen for a second, is that expected?", "should_trigger": true },
+  { "query": "run the nordbeam-locale explain command on INVALID_ICU and fix my catalogs accordingly", "should_trigger": true },
+  { "query": "rename the message key checkout.pay to checkout.submit everywhere, project uses nordbeam-locale generated typed messages in src/i18n", "should_trigger": true },
+  { "query": "add i18n to my svelte app, I want the typed compile-to-js approach with ICU messages that Nordbeam does", "should_trigger": true },
+  { "query": "add a new translation key to en.json in our react-i18next project, the app uses i18next with useTranslation everywhere", "should_trigger": false },
+  { "query": "our next-intl setup throws 'No intl context found' on the /pricing page, help me debug", "should_trigger": false },
+  { "query": "migrate our react-i18next app and its locales folder to Nordbeam Locale", "should_trigger": false },
+  { "query": "what's the difference between i18next and FormatJS for a large React app? we haven't picked a library yet", "should_trigger": false },
+  { "query": "format this date as 'Sep 10, 2026' in JavaScript using Intl.DateTimeFormat in a utility function", "should_trigger": false },
+  { "query": "add a plural-aware translation to our vue-i18n messages (we use createI18n with legacy: false) for '{n} apples'", "should_trigger": false },
+  { "query": "set up Lingui with the SWC plugin in our Vite project and extract messages", "should_trigger": false },
+  { "query": "translate our README.md into Spanish", "should_trigger": false },
+  { "query": "the build fails with a TypeScript error in src/i18n/index.d.ts in our typesafe-i18n project, generated types are broken", "should_trigger": false }
+]

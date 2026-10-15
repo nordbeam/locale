@@ -1,0 +1,9 @@
+{
+  "baseLocale": "en",
+  "catalogs": "messages",
+  "outDir": "src/i18n",
+  "timeZone": "UTC",
+  "scopes": {
+    "route": ["title", "greeting", "items", "about", "post", "fromServer"]
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "skill_name": "nordbeam-locale",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "This is a fresh Vite + React + TypeScript app (package.json has react, react-dom and vite; no i18n library yet). We decided on Nordbeam Locale. Set up i18n with English as the base and add French. The home page shows a greeting with the user's name, an item count like '0 items / 1 item / 12 items' and a language switcher.",
+      "expected_output": "The project is initialised with init --framework vite-react, English and French catalogs use ICU plural syntax, the App is wrapped in i18n.Provider and uses the generated typed messages, a switcher calls setLocale, and verify passes.",
+      "files": [],
+      "expectations": [
+        "Installs @nordbeam/locale before running any npx nordbeam-locale command",
+        "Runs npx nordbeam-locale init --framework vite-react (or init with the framework detected as vite-react)",
+        "Adds nordbeamLocale() from @nordbeam/locale/vite to vite.config.ts if the file already existed and was preserved",
+        "Writes the item count as an ICU plural message with an other branch, using # for the count",
+        "Creates messages/fr.json with the same argument names and a French plural (one and other branches at minimum) rather than copying English",
+        "Wraps the app in <i18n.Provider initialLocale=\"en\"> imported from the scaffolded src/i18n/client and reads messages with i18n.useI18n()",
+        "Implements the switcher with setLocale from i18n.useI18n(), not hand-rolled state",
+        "Runs check --json and generate --json, and finishes by running verify --json with exit status 0",
+        "Does not edit any file listed in src/i18n/.nordbeam-locale-manifest.json"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "In our Next.js 16 App Router app (already using Nordbeam Locale with en and de, app routes in src/app/[locale]) add a French locale and make sure the language switcher on the header can change the locale and keep the current page.",
+      "expected_output": "messages/fr.json is added with matching ICU contracts, routing includes fr, and the switcher uses createNextNavigation's usePathname and useRouter().replace(pathname, { locale }).",
+      "files": [],
+      "expectations": [
+        "Reads nordbeam-locale.config.json or runs inspect --json to find the catalog directory and base locale",
+        "Creates the fr catalog in the configured catalog directory, with the same argument names and rich tags as the base messages",
+        "Runs generate and check --strict (or verify) and fixes any reported FALLBACK_MESSAGE or MISSING_MESSAGE rows by translating, not by copying English",
+        "Builds or reuses src/i18n/navigation.ts from createNextNavigation(routing) rather than importing next/link directly for locale links",
+        "Implements the switcher as a Client Component calling router.replace(pathname, { locale }) with pathname from the navigation usePathname()",
+        "Does not pass a messages object or message function from a Server Component to a Client Component props",
+        "Ensures the request file (proxy.ts or middleware.ts) sits beside src/app and the matcher is unchanged"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "nordbeam-locale check keeps failing on my messages/fr.json and I don't get why. Can you fix it? (Running check --json shows INVALID_ICU with MISSING_OTHER_CLAUSE for 'items', UNKNOWN_ARGUMENT for 'greeting', and DROPPED_RICH_TAG for 'cart.terms'.)",
+      "expected_output": "Each diagnostic is fixed in the French catalog following the code's fix, then check and verify pass.",
+      "files": [],
+      "expectations": [
+        "Uses the structured output (check --json) and reads code, file, line and fix instead of guessing",
+        "Runs explain on at least one code, or applies the fix text the diagnostic carries",
+        "Adds an other branch to the French plural and keeps # for the count",
+        "Restores the base message's argument name in the French greeting instead of renaming the argument in the base catalog",
+        "Restores the missing rich tag pair in the French cart.terms text",
+        "Re-runs check --json, generates, and finishes with verify --json exit status 0"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Add a 'Last seen {date} ({count, plural...})' style message to our Vue 3 + Nordbeam Locale app: it should say 'Last seen on Sep 10, 2026 by 3 people' with correct plural for people (1 person, 2 people), and use it in the profile component.",
+      "expected_output": "A catalog message combining a date and a plural, called through i18n.useI18n() messages in a Vue component with correct argument types.",
+      "files": [],
+      "expectations": [
+        "Writes one ICU message using {date, date, medium} and a plural on the count with an other branch",
+        "Calls the message with a Date (or epoch number) and a number, not strings",
+        "In the Vue component uses i18n.useI18n() from the generated src/i18n/vue.ts and reads messages.value in script (or messages in the template), not a global import of the messages object",
+        "Adds the same message with the same arguments to every other locale catalog or leaves them as reported fallbacks and says so",
+        "Runs check --json, generate --json and verify --json"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Our Arabic translations were added to messages/ar.json but the item count message shows the wrong text for 2 and for 11 items. Look at it and fix it.",
+      "expected_output": "The Arabic plural has the categories Arabic requires (zero, one, two, few, many, other) with correct translations.",
+      "files": [],
+      "expectations": [
+        "Recognises that Arabic needs more plural categories than English (zero, one, two, few, many, other)",
+        "Looks at the diagnostics (MISSING_PLURAL_CATEGORY or MISSING_PLURAL_BRANCH) via check --json or explain",
+        "Adds the missing branches while keeping # for the formatted count and the same argument name as the base message",
+        "Keeps the base English message unchanged",
+        "Ends with verify --json exit status 0 and does not hand-edit generated files"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "I want to see where 'checkout.pay' is used and rename it to 'checkout.submit' across the catalogs and source, then make sure nothing is stale.",
+      "expected_output": "Uses inspect --id and rename --regenerate, reviews the diff, and verifies.",
+      "files": [],
+      "expectations": [
+        "Runs inspect --id checkout.pay --json (or doctor) to see the message across locales before changing it",
+        "Uses the rename command with --id checkout.pay --to checkout.submit (and --regenerate or a following generate) instead of manual search and replace of catalogs",
+        "Reviews the git diff of catalogs and source afterwards and checks dynamic references that a static rename cannot see",
+        "Runs the project's type-check or build, then verify --json with exit status 0"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Our server component page imports the loaded messages and passes `messages` as a prop to a <Header /> client component, and it crashes with 'Functions cannot be passed directly to Client Components'. We use Nordbeam Locale in Next.js. Fix it.",
+      "expected_output": "Only the locale string crosses the boundary; the client component reads messages through the client i18n provider.",
+      "files": [],
+      "expectations": [
+        "Identifies that generated message functions are not serialisable across React Flight",
+        "Passes the validated locale string (not the messages object) to the client side",
+        "Wraps the client tree with NordbeamLocaleProvider or i18n.Provider from the scaffolded src/i18n/client or provider, and uses i18n.useI18n() in the client component",
+        "Does not convert the server page into a Client Component to work around the error"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Write a Node script that prints a localized order confirmation email subject in the user's locale. We use Nordbeam Locale (plain TypeScript, no framework). Locales are en and de; the locale arrives as a string from an HTTP header.",
+      "expected_output": "A script that validates the incoming locale against the generated locales, calls loadLocale per request, and uses a typed message.",
+      "files": [],
+      "expectations": [
+        "Validates the header value against the generated locales list (for example locales.includes) before calling loadLocale",
+        "Falls back to the generated baseLocale when the value is unsupported",
+        "Imports from the generated index with the .js extension and awaits loadLocale(locale) per call instead of keeping a module-global current locale",
+        "Calls the message as a typed function, for example m.order.subject({ number }), after adding it to both en and de catalogs",
+        "Runs generate and verify --json"
+      ]
+    }
+  ]
+}

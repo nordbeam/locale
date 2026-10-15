@@ -1,0 +1,22 @@
+[
+  { "query": "migrate our react-i18next app to Nordbeam Locale, catalogs live in public/locales/en/translation.json", "should_trigger": true },
+  { "query": "we're moving off next-intl, convert messages/*.json and the useTranslations calls to Nordbeam", "should_trigger": true },
+  { "query": "run nordbeam-locale migrate-project on our lingui project and show me what it would change", "should_trigger": true },
+  { "query": "convert this i18next JSON catalog into the nordbeam-locale format and tell me what it can't convert", "should_trigger": true },
+  { "query": "we have gettext .po files and want to replace them with Nordbeam Locale catalogs", "should_trigger": true },
+  { "query": "replace vue-i18n with @nordbeam/locale in our Vue 3 app", "should_trigger": true },
+  { "query": "nordbeam-locale codemod --plan gave me a plan file, how do I apply it safely?", "should_trigger": true },
+  { "query": "switch us from FormatJS react-intl to Nordbeam, we have defineMessages everywhere", "should_trigger": true },
+  { "query": "migrate-project says MIGRATE_PACKAGE_MISSING, what do I do", "should_trigger": true },
+  { "query": "migrate our Android strings.xml and iOS Localizable.xcstrings into Nordbeam Locale catalogs", "should_trigger": true },
+  { "query": "add a new message 'Save draft' to messages/en.json in our Nordbeam Locale project and translate it to French", "should_trigger": false },
+  { "query": "nordbeam-locale verify fails with GENERATED_MODIFIED", "should_trigger": false },
+  { "query": "should we use i18next or next-intl for our new Next.js app?", "should_trigger": false },
+  { "query": "upgrade i18next from v23 to v25 in our app, tests are failing after the bump", "should_trigger": false },
+  { "query": "migrate our database from MySQL to Postgres", "should_trigger": false },
+  { "query": "add a French locale to our existing Nordbeam Locale app with a language switcher", "should_trigger": false },
+  { "query": "set up react-intl in a fresh Vite app", "should_trigger": false },
+  { "query": "extract all hardcoded strings in src/components into translation keys for our existing next-intl setup", "should_trigger": false },
+  { "query": "convert our CSV of translations into JSON files for i18next", "should_trigger": false },
+  { "query": "migrate from Webpack to Vite", "should_trigger": false }
+]

@@ -1,0 +1,35 @@
+{
+  "name": "nordbeam-locale-vscode",
+  "displayName": "Nordbeam Locale",
+  "description": "Typed translation navigation, extraction and repair for @nordbeam/locale",
+  "version": "0.1.0",
+  "publisher": "nordbeam",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "engines": { "vscode": "^1.103.0" },
+  "categories": ["Programming Languages", "Other"],
+  "activationEvents": ["workspaceContains:nordbeam-locale.config.json", "workspaceContains:nordbeam-i18n.config.json", "workspaceContains:fasti18n.config.json", "onLanguage:typescript", "onLanguage:typescriptreact", "onLanguage:vue", "onLanguage:svelte", "onLanguage:html"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "nordbeam.extractMessage", "title": "Nordbeam: Extract Message" },
+      { "command": "nordbeam.renameMessage", "title": "Nordbeam: Rename Message" },
+      { "command": "nordbeam.repairMissingKey", "title": "Nordbeam: Repair Missing Translation" },
+      { "command": "nordbeam.showMissingTranslations", "title": "Nordbeam: Show missing translations" },
+      { "command": "nordbeam.verify", "title": "Nordbeam: Verify Generated Message Types" }
+    ],
+    "configuration": {
+      "title": "Nordbeam Locale",
+      "properties": {
+        "nordbeam.inlineTranslations": { "type": "boolean", "default": true, "description": "Show the base-locale translation beside typed message calls." },
+        "nordbeam.verifyOnSave": { "type": "boolean", "default": true, "description": "Run nordbeam-locale check after catalog saves." },
+        "nordbeam.messageIdentifiers": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z_$][\\w$]*$" }, "default": ["m", "messages"], "description": "Identifiers treated as message objects when a file has no detected `const { messages } = await loadLocale(...)` or `useMessages(...)` binding." }
+      }
+    },
+    "keybindings": [
+      { "command": "nordbeam.extractMessage", "key": "ctrl+alt+n", "mac": "cmd+alt+n", "when": "editorTextFocus" }
+    ]
+  },
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "node --test test/*.test.cjs", "package": "npx @vscode/vsce package --no-dependencies" },
+  "devDependencies": { "@types/node": "26.4.1", "@types/vscode": "1.103.0", "typescript": "7.0.2" }
+}
