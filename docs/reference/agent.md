@@ -83,6 +83,8 @@ Additive:
 - `inspect --id`: an argument that only the config declares (the `arguments`
   key) is listed with `declared: true`.
 - New codes: `doctor` reports the `QUOTED_RUN_APOSTROPHE` warning; `check`,
+  `generate`, `inspect` and `report` report the `SCOPE_DYNAMIC_ACCESS` warning
+  with `file` and `location`; `check`,
   `generate` and `verify` report `INVALID_DECLARED_ARGUMENT`,
   `UNKNOWN_INTL_LOCALE` and `INVALID_INTL_LOCALE` errors; `migrate-project`
   reports the `LINGUI_PO_QUOTES`, `LINGUI_OBSOLETE_INCLUDED`,

@@ -1,6 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { CompileError } from './diagnostics.js';
+import type { Diagnostic } from './diagnostics.js';
 
 /**
  * A scope computed from code: the messages its modules can reach. The crawl starts at
@@ -181,12 +182,60 @@ function namedIds(code: string, ids: ReadonlySet<string>, all: readonly string[]
   }
 }
 
+/** A read of the messages object with a computed key, such as `m[key]()` or `m.status[state]()`.
+ * The crawl cannot tell which message it is, so a scope may lack it. */
+export interface DynamicAccess {
+  readonly file: string;
+  /** One-based line and column, and zero-based UTF-16 offset, of the access in the file. */
+  readonly location: { line: number; column: number; offset: number };
+  readonly expression: string;
+}
+
+const ignoreMarker = 'nordbeam-locale-ignore';
+
+/** Computed reads of the variables that hold messages in `code`. A variable holds messages when one
+ * of its static chains names a message (`m` in `m.cart.total()`), or it is a namespace named like
+ * one (`checkout` in `checkout.title()`). A string key, and a template whose literal start names
+ * an ID prefix, are resolved by `namedIds` and are not reported. */
+function dynamicAccesses(code: string, ids: ReadonlySet<string>, file: string): DynamicAccess[] {
+  const roots = new Set<string>();
+  for (const match of code.matchAll(chainPattern)) {
+    const segments = [...match[0].matchAll(segmentPattern)].map(segment => segment[1] ?? segment[2] ?? segment[0]);
+    const path = segments.flatMap(segment => segment.split('.'));
+    for (let end = 2; end <= path.length; end++) {
+      if (ids.has(path.slice(1, end).join('.')) || end > 2 && ids.has(path.slice(0, end).join('.'))) { roots.add(segments[0]!); break; }
+    }
+  }
+  if (!roots.size) return [];
+  const escaped = [...roots].map(root => root.replace(/[$]/g, '\\$&')).join('|');
+  const access = new RegExp(String.raw`(?<![\p{ID_Continue}$.\u200c\u200d])(?:${escaped})(?:\??\.${name}|(?:\?\.)?${keyed})*\s*(?:\?\.)?\[\s*`, 'gu');
+  const found: DynamicAccess[] = [];
+  for (const match of code.matchAll(access)) {
+    const rest = code.slice(match.index + match[0].length);
+    const head = code.slice(match.index, match.index + match[0].length).replace(/\s*(?:\?\.)?\[\s*$/, '');
+    if (/^['"]/.test(rest)) continue;
+    const template = /^`((?:[^`\\]|\\.)*)`\s*\]/.exec(rest);
+    // A template key on the messages object itself is resolved like a template literal.
+    if (template && (!template[1]!.includes('${') || !head.includes('.') && !head.includes('[') && templatePrefix.test(template[1]!))) continue;
+    // An ignore comment on the line, or on the line above, keeps a reviewed access quiet.
+    const lineStart = code.lastIndexOf('\n', match.index) + 1, previous = code.lastIndexOf('\n', lineStart - 2) + 1;
+    const lineEnd = code.indexOf('\n', match.index);
+    if (code.slice(previous, lineEnd < 0 ? undefined : lineEnd).includes(ignoreMarker)) continue;
+    const close = rest.indexOf(']');
+    const line = code.slice(0, match.index).split('\n').length;
+    found.push({ file, location: { line, column: match.index - lineStart + 1, offset: match.index }, expression: `${head}[${(close < 0 ? rest.slice(0, 40) : rest.slice(0, close)).trim().slice(0, 60)}]` });
+  }
+  return found;
+}
+
 export interface ScopeModulesResult {
   readonly ids: string[];
   /** Every source file read, for watchers. */
   readonly files: string[];
   /** With `trace`: how the crawl reached each file and which file first names each ID. */
   readonly trace?: ScopeTrace;
+  /** Computed reads of the messages object in the files read. */
+  readonly dynamic: DynamicAccess[];
 }
 
 /** Why a scope holds what it holds. Paths are absolute. */
@@ -237,6 +286,7 @@ export async function moduleScopeIds(options: { root: string; scope: string; mod
   const reached = new Set<string>();
   const found = new Set<string>();
   const namedBy = new Map<string, string[]>();
+  const dynamic: DynamicAccess[] = [];
   async function target(specifier: string, from: string): Promise<string | undefined> {
     const bare = specifier.split(/[?#]/)[0]!;
     if (!bare || bare.startsWith('node:') || bare.startsWith('virtual:') || bare.startsWith('\0')) return;
@@ -264,6 +314,7 @@ export async function moduleScopeIds(options: { root: string; scope: string; mod
       for (const id of own) { found.add(id); namedBy.get(id)?.push(file) ?? namedBy.set(id, [file]); }
     } else namedIds(code, ids, options.ids, found);
     if (file.endsWith('.json')) continue;
+    dynamic.push(...dynamicAccesses(code, ids, file));
     for (const match of code.matchAll(importPattern)) {
       const dynamic = match[1] !== undefined;
       if (dynamic && options.dynamicImports === false) continue;
@@ -273,7 +324,7 @@ export async function moduleScopeIds(options: { root: string; scope: string; mod
       if (!files.has(next)) files.set(next, { from: file, dynamic });
     }
   }
-  const result = { ids: options.ids.filter(id => found.has(id)).sort(), files: [...reached].sort() };
+  const result = { ids: options.ids.filter(id => found.has(id)).sort(), files: [...reached].sort(), dynamic };
   if (!options.trace) return result;
   for (const file of files.keys()) if (!reached.has(file)) files.delete(file);
   return { ...result, trace: { files, ids: new Map(result.ids.map(id => [id, namedBy.get(id) ?? []])) } };
@@ -281,17 +332,23 @@ export async function moduleScopeIds(options: { root: string; scope: string; mod
 
 /** Resolve module scopes to the message IDs their code names, plus their `messages` patterns. */
 export async function resolveModuleScopes(options: { root?: string; outDir?: string; scopes?: Readonly<Record<string, ScopeConfig>> },
-  baseIds: readonly string[] | undefined): Promise<{ scopes?: Record<string, readonly string[]>; files: string[]; computed: string[] }> {
-  if (!options.scopes || !Object.values(options.scopes).some(isModuleScope)) return { scopes: options.scopes as Record<string, readonly string[]> | undefined, files: [], computed: [] };
+  baseIds: readonly string[] | undefined): Promise<{ scopes?: Record<string, readonly string[]>; files: string[]; computed: string[]; warnings: Diagnostic[] }> {
+  if (!options.scopes || !Object.values(options.scopes).some(isModuleScope)) return { scopes: options.scopes as Record<string, readonly string[]> | undefined, files: [], computed: [], warnings: [] };
   const scopes: Record<string, readonly string[]> = {};
   const files = new Set<string>();
   const errors = [];
+  // One warning per access, naming every scope whose crawl read it.
+  const dynamic = new Map<string, { access: DynamicAccess; scopes: string[] }>();
   for (const [name, scope] of Object.entries(options.scopes)) {
     if (!isModuleScope(scope)) { scopes[name] = scope; continue; }
     if (!baseIds) { if (scope.messages?.length) scopes[name] = scope.messages; continue; }
     try {
       const result = await moduleScopeIds({ root: options.root ?? '.', scope: name, modules: scope.modules, exclude: scope.exclude, dynamicImports: scope.dynamicImports, ids: baseIds, outDir: options.outDir ?? 'src/i18n' });
       for (const file of result.files) files.add(file);
+      for (const access of result.dynamic) {
+        const key = `${access.file}\0${access.location.offset}`;
+        dynamic.get(key)?.scopes.push(name) ?? dynamic.set(key, { access, scopes: [name] });
+      }
       const patterns = [...(scope.messages ?? []), ...result.ids];
       if (!patterns.length) {
         errors.push({ code: 'EMPTY_SCOPE', message: `The modules of scope "${name}" name no messages. Check its module patterns, or list messages for it.` });
@@ -305,5 +362,13 @@ export async function resolveModuleScopes(options: { root?: string; outDir?: str
   }
   if (errors.length) throw new CompileError(errors);
   const computed = Object.keys(scopes).filter(name => isModuleScope(options.scopes![name]));
-  return { scopes, files: [...files].sort(), computed };
+  const root = resolve(options.root ?? '.');
+  const warnings = [...dynamic.values()].map(({ access, scopes: names }): Diagnostic => ({
+    code: 'SCOPE_DYNAMIC_ACCESS',
+    message: `${relative(root, access.file).split(sep).join('/')}:${access.location.line} reads ${access.expression}, so the ${names.length > 1 ? 'scopes' : 'scope'} ${names.map(item => JSON.stringify(item)).join(', ')} cannot tell which message it is and may lack it.`,
+    hint: `Read it with a literal key or a template such as m[\`status.\${state}\`](), keep a map of message functions such as { open: m.status.open }[state], or add its IDs to the scope's messages. A ${ignoreMarker} comment on the line keeps a reviewed read quiet.`,
+    file: access.file,
+    location: access.location,
+  }));
+  return { scopes, files: [...files].sort(), computed, warnings };
 }

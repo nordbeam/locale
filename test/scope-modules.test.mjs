@@ -108,6 +108,39 @@ test('the crawl follows an import that names non-ASCII bindings', async t => {
   assert.ok(result.scopeFiles.includes(join(root, 'src/components/Sökruta.tsx')));
 });
 
+test('a computed read of the messages object in a file the crawl reads is a warning, once for every scope that reads it', async t => {
+  const { root, options, write } = await project(t);
+  options.scopes.other = { modules: ['src/components/Status.tsx'] };
+  await write('src/routes/index.tsx', "import { Status } from '../components/Status';\nexport const Page = ({ m }) => <Status m={m} />;\n");
+  await write('src/components/Status.tsx', [
+    'export const Status = ({ m, state, tier, key, rows, index }) => <>',
+    '  {m.pricing.title()}',
+    '  {m[state]()}',
+    '  {m.pricing.plan[tier]()}',
+    "  {m['home.title']()} {m[`pricing.plan.${tier}`]()} {rows[index]}",
+    '  {m[key]() /* nordbeam-locale-ignore */}',
+    '</>;',
+  ].join('\n'));
+  const result = await generate(options);
+  const warnings = result.warnings.filter(warning => warning.code === 'SCOPE_DYNAMIC_ACCESS');
+  assert.deepEqual(warnings.map(warning => [warning.file, warning.location.line, warning.location.column]), [
+    [join(root, 'src/components/Status.tsx'), 3, 4],
+    [join(root, 'src/components/Status.tsx'), 4, 4],
+  ]);
+  assert.equal(warnings[0].message, 'src/components/Status.tsx:3 reads m[state], so the scopes "site", "other" cannot tell which message it is and may lack it.');
+  assert.match(warnings[1].message, /reads m\.pricing\.plan\[tier\], so the scopes/);
+  assert.match(warnings[0].hint, /map of message functions/);
+
+  await writeFile(join(root, 'nordbeam-locale.config.json'), JSON.stringify({ baseLocale: 'en', scopes: options.scopes }));
+  const report = JSON.parse(spawnSync(process.execPath, [cli, 'check', '--json'], { cwd: root, encoding: 'utf8' }).stdout);
+  assert.deepEqual(report.warnings.filter(warning => warning.code === 'SCOPE_DYNAMIC_ACCESS').map(warning => [warning.file, warning.location.line]), [['src/components/Status.tsx', 3], ['src/components/Status.tsx', 4]]);
+});
+
+test('the fixture project, with a template key on the messages object, has no dynamic read warning', async t => {
+  const { options } = await project(t);
+  assert.deepEqual((await generate(options)).warnings.filter(warning => warning.code === 'SCOPE_DYNAMIC_ACCESS'), []);
+});
+
 test('dynamicImports: false stops the crawl at import(), and the trace says why each message is in the scope', async t => {
   const { root, options } = await project(t, { dynamicImports: false });
   const result = await generate(options);

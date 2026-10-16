@@ -356,6 +356,24 @@ reading a message that the catalog has and the scope left out logs
 `Nordbeam Locale: message "…" is not in the "site" scope` to the console.
 Production output has no check.
 
+The usual miss is a computed key: `m[key]()` or `m.status[state]()` names no
+message the crawl can see. `check` and `generate` warn about each such read in a
+file a scope reads, with
+[`SCOPE_DYNAMIC_ACCESS`](reference/errors.md#scope_dynamic_access). Give the
+crawl something to read instead:
+
+```tsx
+// A template with the ID's start takes every status.* message.
+m[`status.${state}`]()
+// A map of message functions names each message.
+const statusLabel = { open: m.status.open, closed: m.status.closed };
+statusLabel[state]()
+```
+
+Or add the IDs or a `status.*` pattern to the scope's `messages`. A
+`// nordbeam-locale-ignore` comment on the line, or the line above, keeps a read
+you have checked quiet.
+
 The TanStack Start adapter can load a scope's catalog for the pages it covers
 and the full catalog for the rest; see
 [Scopes in TanStack Start](reference/tanstack-start.md#scopes).

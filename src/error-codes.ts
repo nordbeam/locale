@@ -40,7 +40,7 @@ export function usageError(message: string, details: Record<string, unknown> = {
 }
 
 const warningCodes = new Set([
-  'EMPTY_SCOPE_PATTERN', 'UNKNOWN_NOTE', 'MISSING_MESSAGE', 'FALLBACK_MESSAGE', 'MISSING_PLURAL_CATEGORY', 'DROPPED_RICH_TAG', 'IGNORED_CATALOG_FILE',
+  'EMPTY_SCOPE_PATTERN', 'SCOPE_DYNAMIC_ACCESS', 'UNKNOWN_NOTE', 'MISSING_MESSAGE', 'FALLBACK_MESSAGE', 'MISSING_PLURAL_CATEGORY', 'DROPPED_RICH_TAG', 'IGNORED_CATALOG_FILE',
   'CONFIG_DEVELOPMENT_IGNORED', 'SELECTION_FALLBACK', 'MISSING_MESSAGES_BINDING', 'RENAME_DYNAMIC_REFERENCE', 'UNUSED_MESSAGE', 'HARDCODED_TEXT', 'QUOTED_RUN_APOSTROPHE',
   'DOTTED_SOURCE_ID', 'LINGUI_COMPILED_ENTRY', 'I18NEXT_CONTEXT', 'I18NEXT_FORMATTER', 'I18NEXT_NESTING', 'I18NEXT_TRANS_INDEX',
   'MIGRATION_INTERPOLATION_REVIEW', 'MIGRATION_LITERAL_BRACE', 'MIGRATION_LOCALE_REQUIRED', 'MIGRATION_MESSAGE_FIELD', 'MIGRATION_METADATA_DROPPED',
@@ -99,6 +99,7 @@ const definitions: Record<string, [explanation: string, fix: string, exitCode?: 
   INVALID_SELECTION: ['A requested loader or locale is not part of the generated project.', 'Use a locale that has a catalog, or add the catalog and regenerate.'],
   INVALID_FORMAT: ['An ICU number, date or time pattern or skeleton was rejected by Intl.', 'Correct the pattern or skeleton named in the message.'],
   EMPTY_SCOPE: ['The modules of a scope name no message IDs, so its loader would hold no messages.', 'List the files that render the scope\'s messages in its modules, or add the messages to the scope.'],
+  SCOPE_DYNAMIC_ACCESS: ['A file that a computed scope reads indexes the messages object with a computed key, such as m[key]() or m.status[state](). The crawl cannot tell which message that is, so the scope may lack it, and a page that reads a message its scope lacks fails at run time. Tests that render the full catalog do not notice.', "Read the message with a literal key or a template such as m[`status.${state}`](), keep a map of message functions such as { open: m.status.open }[state], or add its IDs or a prefix.* pattern to the scope's messages. A nordbeam-locale-ignore comment on the line keeps a reviewed read quiet."],
   SCOPE_MODULE_NOT_FOUND: ['A module pattern of a scope matches no files, so the scope cannot be computed.', 'Correct the pattern, relative to the project root, or remove it.'],
   EMPTY_SCOPE_PATTERN: ['A configured scope pattern matches no messages, so the scope selects nothing.', 'Correct the pattern, or remove the scope if it is no longer needed.'],
   INVALID_NOTES: ['The notes file cannot be read, is not JSON shaped like a catalog, or sits in the catalog directory.', 'Keep the notes file outside the catalog directory, as a JSON object whose leaves are note strings.'],

@@ -813,6 +813,14 @@ ngx-translate pipes and directives in templates need an explicit template migrat
 
 **Fix:** Replace the translate pipe or directive in each template by hand.
 
+### SCOPE_DYNAMIC_ACCESS
+
+Severity: warning.
+
+A file that a computed scope reads indexes the messages object with a computed key, such as m[key]() or m.status[state](). The crawl cannot tell which message that is, so the scope may lack it, and a page that reads a message its scope lacks fails at run time. Tests that render the full catalog do not notice.
+
+**Fix:** Read the message with a literal key or a template such as m[`status.${state}`](), keep a map of message functions such as { open: m.status.open }[state], or add its IDs or a prefix.* pattern to the scope's messages. A nordbeam-locale-ignore comment on the line keeps a reviewed read quiet.
+
 ### SCOPE_MODULE_NOT_FOUND
 
 Severity: error.

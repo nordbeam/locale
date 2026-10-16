@@ -63,6 +63,14 @@ with one more type change, in the TanStack Start adapter:
   prints the import chain that brought one message in. `inspectScope` returns
   the same from `@nordbeam/locale/agent/inspect`, and the `report` page shows
   each computed scope's file count and the dynamic-import trade-off.
+- **Computed reads warn.** The crawl cannot tell which message `m[key]()` or
+  `m.status[state]()` reads, so a scope could lack it and the page fail in
+  production. `check`, `generate`, `inspect` and `report` now warn about each
+  such read in a file a scope reads, naming every scope it affects:
+  `SCOPE_DYNAMIC_ACCESS`. A template key with the ID's start
+  (`` m[`status.${state}`]() ``) is read as a pattern and does not warn, and a
+  `nordbeam-locale-ignore` comment on the line or the line above keeps a
+  checked read quiet.
 - **`"dynamicImports": false` on a scope** stops the crawl at dynamic
   `import()` calls, for code split off behind a boundary that loads the full
   catalog anyway. In the migrated app it took two scopes from 525 and 767

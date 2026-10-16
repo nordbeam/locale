@@ -259,8 +259,9 @@ export async function check(options: GenerateOptions, read: (file: string) => Pr
   try { notes = await readNotes(options, read); }
   catch (error) { if (!(error instanceof CompileError)) throw error; errors.push(...error.diagnostics); }
   let scopes: Record<string, readonly string[]> | undefined;
+  let scopeWarnings: Diagnostic[] = [];
   const base = catalogs[options.baseLocale];
-  try { scopes = (await resolveModuleScopes(options, base && [...catalogIds(base)])).scopes; }
+  try { ({ scopes, warnings: scopeWarnings } = await resolveModuleScopes(options, base && [...catalogIds(base)])); }
   catch (error) { if (!(error instanceof CompileError)) throw error; errors.push(...error.diagnostics); scopes = staticScopes(options.scopes); }
   const { notes: _file, ...compilerOptions } = options;
   const result = checkProject({ ...compilerOptions, scopes, catalogs });
@@ -270,7 +271,7 @@ export async function check(options: GenerateOptions, read: (file: string) => Pr
   const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
   errors.sort((a, b) => compare(a.locale ?? '', b.locale ?? '') || (a.location?.offset ?? -1) - (b.location?.offset ?? -1) || compare(a.code, b.code));
   const warnings = [...locateDiagnostics(result.warnings, sources), ...discovered.ignored, ...thenableWarnings(catalogs, options.baseLocale),
-    ...(catalogs[options.baseLocale] ? unknownNotes(notes, catalogIds(catalogs[options.baseLocale]!), notesFile(options)) : [])];
+    ...(catalogs[options.baseLocale] ? unknownNotes(notes, catalogIds(catalogs[options.baseLocale]!), notesFile(options)) : []), ...scopeWarnings];
   return { ...result, ok: errors.length === 0, errors, warnings, locales, catalogFiles };
 }
 
@@ -438,7 +439,7 @@ async function generateProject(options: GenerateOptions, read: (file: string) =>
   project = markProject(project, !!options.development, root, input);
   // Source-level warnings are added after caching so a restored project never repeats them.
   const warnings = [...project.warnings, ...ignored, ...thenableWarnings(catalogs, options.baseLocale),
-    ...unknownNotes(notes, new Set(project.groups['index.js']), notesFile(options))];
+    ...unknownNotes(notes, new Set(project.groups['index.js']), notesFile(options)), ...scoped.warnings];
   const record = inputs && { inputs, project: { locales: project.locales, groups: project.groups, warnings } };
   const changed = await writeOutput(project, outDir, output, record || undefined);
   if (!stored && cacheFile && key) {
