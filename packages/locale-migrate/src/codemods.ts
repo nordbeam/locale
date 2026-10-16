@@ -672,8 +672,9 @@ function argumentsOf(text: string, open: number, close: number, mask: Uint8Array
     else if (character === '{') curly++; else if (character === '}') curly--;
     else if (character === ',' && round === 0 && square === 0 && curly === 0) { arguments_.push(text.slice(start, index).trim()); start = index + 1; }
   }
+  // A trailing comma (`t('key', values,)`, Prettier 3's default) ends the list; it is not an argument.
   const tail = text.slice(start, close).trim();
-  if (tail || arguments_.length) arguments_.push(tail);
+  if (tail) arguments_.push(tail);
   return arguments_;
 }
 

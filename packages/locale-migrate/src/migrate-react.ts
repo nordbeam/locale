@@ -137,7 +137,7 @@ function callArguments(text: string, open: number): string[] | undefined {
     else if (text[i] === ',' && !round && !square && !curly) { result.push(text.slice(start, i).trim()); start = i + 1; }
   }
   const tail = text.slice(start, close).trim();
-  if (tail || result.length) result.push(tail);
+  if (tail) result.push(tail);
   return result;
 }
 
