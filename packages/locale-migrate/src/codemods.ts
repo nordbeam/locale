@@ -10,7 +10,7 @@ import { unboundTranslatorSkips } from './codemod-unbound.js';
 import type { FilePlan } from 'nordbeam-locale/internal/migrate';
 import { FormatJsSource, formatJsProjectMessages, removeUnusedDescriptors } from './codemod-formatjs.js';
 import type { FormatJsImportedMessages } from './codemod-formatjs.js';
-import { isLinguiMacro, linguiCall, linguiMacroMessage, linguiTaggedTemplates, linguiTransMessage, linguiValues, resolveLinguiMessage } from './codemod-lingui.js';
+import { isLinguiMacro, linguiCall, linguiChoiceCalls, linguiChoiceNames, linguiMacroMessage, linguiTaggedTemplates, linguiTransMessage, linguiValues, resolveLinguiMessage, type LinguiChoiceNames } from './codemod-lingui.js';
 import type { LinguiLookup } from './codemod-lingui.js';
 
 export type CodemodFormat = 'auto' | 'i18next' | 'next-intl' | 'formatjs' | 'lingui'
@@ -1004,7 +1004,8 @@ function actionableSkip(item: CodemodSkip): CodemodSkip {
     action = 'Add the message to the base catalog or correct the key to an existing generated ID, then re-run the codemod.';
   } else if (/source-to-id mapping/.test(reason)) {
     code = 'MESSAGE_ID_UNRESOLVED';
-    action = 'Add the message to the base catalog, or pass --message-id-map with a JSON object from each source text to its message ID, then re-run the codemod.';
+    // The usual cause is a message added to the source after the catalog was last extracted.
+    action = 'Run lingui extract so the catalog holds every message the source uses, then pass --message-id-map with a JSON object from each source text to its message ID (or add the message to the base catalog), and re-run the codemod.';
   } else if (/did not parse|unclosed/.test(reason)) {
     code = 'SOURCE_PARSE_ERROR';
     action = 'Repair the source syntax first; the codemod intentionally made no changes at this boundary.';
@@ -1364,6 +1365,8 @@ type JsxContext = {
   messageComponent?: string; richIds?: ReadonlySet<string>;
   /** The file's react-intl state; also finds names bound to elements in other formats' values. */
   formatJs?: FormatJsSource;
+  /** Lingui choice macros the file imports, by local name (`Plural`, `plural`…). */
+  linguiChoices?: LinguiChoiceNames;
 };
 
 function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, root: string, mask: Uint8Array, skipped: CodemodSkip[], context: JsxContext): Replacement[] {
@@ -1376,7 +1379,9 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
     : format === 'i18next' ? hasCodeMatch(text, /(?:\bfrom\s*['"](?:react-i18next|next-i18next)['"]|\buseTranslation\s*\()/g) : false;
   if (!component || !proven) return [];
   const modules = format === 'formatjs' ? ['react-intl'] : format === 'lingui' ? ['@lingui/react', '@lingui/react/macro'] : ['react-i18next', 'next-i18next'];
-  const components = [...new Set([component, ...importedLocals(text, modules, [component])])];
+  const choiceElements = format === 'lingui' ? [...(context.linguiChoices ?? new Map())].filter(([, imported]) => /^(?:Plural|Select|SelectOrdinal)$/.test(imported)).map(([local]) => local) : [];
+  const components = [...new Set([component, ...importedLocals(text, modules, [component]), ...choiceElements])];
+  const transNames = new Set(['Trans', ...components.filter(item => !choiceElements.includes(item))]);
   if (!components.some(item => new RegExp(`\\b${item}\\b`).test(text))) return [];
   const componentPattern = components.map(item => item.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|');
   const result: Replacement[] = [], pattern = new RegExp(`<(?:(?:${componentPattern}))\\b[\\s\\S]*?\\/>|<(?:(?:${componentPattern}))\\b(?:[^>"']|"[^"]*"|'[^']*')*>([\\s\\S]*?)<\\/(?:${componentPattern})\\s*>`, 'g');
@@ -1386,11 +1391,13 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
   const elements = jsxElements
     ? [...jsxElements.keys()].sort((left, right) => left - right).filter(start => { head.lastIndex = start; return head.test(text); }).map(start => ({ 0: '', 1: undefined, index: start }))
     : [...text.matchAll(pattern)].map(found => ({ 0: found[0], 1: found[1], index: found.index! }));
-  // A Lingui <Trans> inside another's children is part of the outer message.
-  const consumedTrans = new Set<number>();
+  // A Lingui <Trans> inside another's children is part of the outer message, and so is every
+  // Lingui element inside one the codemod reported: the report covers the whole message.
+  const consumedTrans = new Set<number>(), reportedLingui: Array<readonly [number, number]> = [];
   for (const found of elements) {
     if (jsxStarts && !jsxStarts.has(found.index)) continue;
     if (consumedTrans.has(found.index)) continue;
+    if (reportedLingui.some(([start, end]) => found.index > start && found.index < end)) continue;
     const bounds = jsxElements?.get(found.index);
     const match: { 0: string; 1: string | undefined; index: number } = bounds
       ? { 0: text.slice(found.index, bounds.end), 1: bounds.closingStart === undefined ? undefined : text.slice(bounds.openingEnd, bounds.closingStart), index: found.index }
@@ -1410,6 +1417,7 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
     }
     const componentName = /^<([A-Za-z_$][\w$]*)/.exec(match[0])?.[1] ?? component;
     const children = match[1];
+    const choiceElement = choiceElements.includes(componentName);
     if (children !== undefined && /[<{]/.test(children) && format !== 'lingui') {
       skipped.push({ callee: `<${componentName}>`, reason: 'non-self-closing component contains rich or expression children', offset: match.index });
       continue;
@@ -1423,20 +1431,26 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
     // message's children; that matters only when the message has tags, decided below.
     const components = format === 'lingui' ? jsxAttribute(match[0], 'components') : undefined;
     const slots = components !== undefined ? linguiSlots(components) : undefined;
-    if (opening.slice(componentName.length + 1).includes('<') && (!slots || (format === 'lingui' && jsxAttribute(match[0], 'render') !== undefined))) {
+    if (!choiceElement && opening.slice(componentName.length + 1).includes('<') && (!slots || (format === 'lingui' && jsxAttribute(match[0], 'render') !== undefined))) {
       skipped.push({ callee: `<${componentName}>`, reason: 'component contains nested JSX and requires a rich-component migration', offset: match.index });
       continue;
     }
     // A Lingui <Trans> with children is the message the macro extracts from them: its text,
-    // `{name}` and positional placeholders, and numbered elements that become rich() slots.
-    if (format === 'lingui' && children !== undefined && children.trim()) {
-      const message = linguiTransMessage(match[0], new Set([componentName, 'Trans']));
+    // `{name}` and positional placeholders, and numbered elements that become rich() slots. A
+    // <Plural>, <Select> or <SelectOrdinal> on its own is a message too, an ICU choice.
+    if (format === 'lingui' && ((children !== undefined && children.trim()) || choiceElement)) {
+      const message = linguiTransMessage(match[0], transNames, context.linguiChoices);
+      const report = (reason: string, code?: string): void => {
+        skipped.push({ callee: `<${componentName}>`, reason, offset: match.index, ...(code ? { code } : {}) });
+        reportedLingui.push([match.index!, match.index! + match[0].length]);
+      };
       if (!message) {
-        if (/[<{]/.test(children)) { skipped.push({ callee: `<${componentName}>`, reason: 'non-self-closing component contains rich or expression children', offset: match.index }); continue; }
+        if (choiceElement) { report(`<${componentName}> cannot be read statically; migrate it manually to an ICU plural or select`); continue; }
+        if (/[<{]/.test(children!)) { skipped.push({ callee: `<${componentName}>`, reason: 'non-self-closing component contains rich or expression children', offset: match.index }); continue; }
       } else {
-        if ('unsupported' in message) { skipped.push({ callee: `<${componentName}>`, reason: message.unsupported, offset: match.index }); continue; }
+        if ('unsupported' in message) { report(message.unsupported); continue; }
         const resolved = resolveLinguiMessage(message, { sourceIds: sourceIds ?? new Map(), ...(allowedIds ? { allowedIds } : {}), renamed });
-        if ('reason' in resolved) { skipped.push({ callee: `<${componentName}>`, reason: resolved.reason, offset: match.index, ...(resolved.code ? { code: resolved.code } : {}) }); continue; }
+        if ('reason' in resolved) { report(resolved.reason, resolved.code); continue; }
         const richCall = message.slots.length > 0;
         const call = richCall ? `rich(${messageAccess(root, resolved.id)}, { ${[...message.values, ...message.slots].join(', ')} })` : `${messageAccess(root, resolved.id)}(${linguiValues(message)})`;
         result.push({ start: match.index!, end: match.index! + match[0].length, ...(richCall ? { rich: true } : {}),
@@ -2329,6 +2343,8 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   const linguiMacros = new Set(['t', 'msg', 'defineMessage', ...importedLocals(text, ['@lingui/core/macro', '@lingui/macro', '@lingui/react/macro'], ['t', 'msg', 'defineMessage'], false)]);
   const consumedMacros = new Set<number>();
   const lazyMacros = new Set(importedLocals(text, ['@lingui/core/macro', '@lingui/macro'], ['msg', 'defineMessage'], false));
+  // plural(), select() and selectOrdinal(), and their components, read only when imported from Lingui.
+  const linguiChoices = linguiChoiceNames(text);
   // `msg\`…\`.id` reads the id, not the message; whatever consumes it (a <Trans id>) decides.
   const readsId = (end: number): boolean => /^\s*(?:\?\.|\.)\s*id\b/.test(text.slice(end));
   const normalized = normalizeFormat(format);
@@ -2432,7 +2448,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       const formatJsReference = binding.kind === 'descriptor' && activeFormat === 'formatjs' && formatJs && args[0] !== undefined && formatJsId(args[0]) === undefined;
       const formatJsConditional = formatJsReference && !formatJs!.needsRich(args[1]) ? formatJs!.conditionalIds(args[0]!) : undefined;
       if (formatJsReference) args[0] = formatJs!.inlineDescriptor(args[0]!) ?? formatJsConditional ?? args[0]!;
-      const macro = activeFormat === 'lingui' && args[0] ? linguiMacroMessage(args[0], linguiMacros) : undefined;
+      const macro = activeFormat === 'lingui' && args[0] ? linguiMacroMessage(args[0], linguiMacros, linguiChoices) : undefined;
       const lazy = activeFormat === 'lingui' && lazyMacros.has(binding.callee);
       if (lazy && readsId(close + 1)) continue;
       if (macro || (activeFormat === 'lingui' && args[0] && isLinguiMacro(args[0], linguiMacros))) consumedMacros.add(open + 1 + text.slice(open + 1).search(/\S/));
@@ -2523,12 +2539,23 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
     // `{name}` and other expressions `{0}`, `{1}`…, as the macro extracts them.
     for (const site of (names.size ? linguiTaggedTemplates(text, names) : undefined) ?? []) {
       if (consumedMacros.has(site.start) || (lazyMacros.has(site.tag) && readsId(site.end))) continue;
-      const callee = `${site.tag}\u0060…\u0060`, macro = linguiMacroMessage(text.slice(site.start, site.end), names);
+      const callee = `${site.tag}\u0060…\u0060`, macro = linguiMacroMessage(text.slice(site.start, site.end), names, linguiChoices);
       if (!macro) continue;
       if ('unsupported' in macro) { skipped.push({ callee, reason: macro.unsupported, offset: site.start }); continue; }
       const resolved = resolveLinguiMessage(macro, linguiLookup);
       if ('reason' in resolved) { skipped.push({ callee, reason: resolved.reason, offset: site.start, ...(resolved.code ? { code: resolved.code } : {}) }); continue; }
       replacements.push({ start: site.start, end: site.end, text: linguiCall(messageAccess(root, resolved.id), linguiValues(macro), lazyMacros.has(site.tag)) });
+    }
+    // A choice macro on its own translates itself: `plural(count, { one: '# item', other: '# items' })`
+    // is the message `{count, plural, one {# item} other {# items}}`.
+    for (const site of linguiChoiceCalls(text, linguiChoices, new Set([...names, ...linguiMacros])) ?? []) {
+      if (consumedMacros.has(site.start)) continue;
+      const callee = `${site.name}()`, macro = linguiMacroMessage(text.slice(site.start, site.end), names, linguiChoices);
+      if (!macro) continue;
+      if ('unsupported' in macro) { skipped.push({ callee, reason: macro.unsupported, offset: site.start }); continue; }
+      const resolved = resolveLinguiMessage(macro, linguiLookup);
+      if ('reason' in resolved) { skipped.push({ callee, reason: resolved.reason, offset: site.start, ...(resolved.code ? { code: resolved.code } : {}) }); continue; }
+      replacements.push({ start: site.start, end: site.end, text: linguiCall(messageAccess(root, resolved.id), linguiValues(macro), false) });
     }
   }
   // A consumed macro is part of the translator call that reads it.
@@ -2539,7 +2566,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
     skipped.length = 0; skipped.push(...reported);
   }
   const jsxContext: JsxContext = { sourceIds, allowedIds, renamed, jsxStarts: parsedCalls?.jsxStarts, jsxChildStarts: parsedCalls?.jsxChildStarts, jsxStatementStarts: parsedCalls?.jsxExpressionStatementStarts, jsxElements: parsedCalls?.jsxElements,
-    messageComponent: options.messageComponent, ...(options.richMessageIds ? { richIds: new Set(options.richMessageIds) } : {}) };
+    messageComponent: options.messageComponent, ...(options.richMessageIds ? { richIds: new Set(options.richMessageIds) } : {}), linguiChoices };
   jsxContext.formatJs = formatJs ?? new FormatJsSource(text);
   for (const activeFormat of formats) for (const replacement of jsxReplacements(text, activeFormat, root, mask, skipped, jsxContext)) {
     const key = `${replacement.start}:${replacement.end - 1}`; if (!occupied.has(key)) { occupied.add(key); replacements.push(replacement); }

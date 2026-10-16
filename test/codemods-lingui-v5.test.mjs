@@ -27,6 +27,8 @@ const map = {
   'Read the <tag0>docs</tag0>': 'docs',
   'Call <0>me</0> later': 'call.later',
   'direction\u0004Left': 'direction.left',
+  '{count, plural, one {# item} other {# items}}': 'items.count',
+  'You have {n, plural, one {# item} other {# items}}': 'items.you',
 };
 const lingui = (body, options = {}) => codemodSource(body, 'lingui', { filename: 'page.tsx', messageIdBySource: map, ...options });
 const parses = code => parse(code, { sourceType: 'module', plugins: ['jsx', 'typescript'] });
@@ -34,6 +36,7 @@ const codes = result => result.skipped.map(item => item.code);
 
 test('tagged macros name identifiers and number other expressions, as Lingui extracts them', () => {
   const result = lingui(`import { useLingui } from '@lingui/react/macro';
+import { plural } from '@lingui/core/macro';
 export function Page({ user, name, count, items }) {
   const { t } = useLingui();
   const choice = t\`\${plural(count, { one: '# item', other: '# items' })}\`;
@@ -41,11 +44,10 @@ export function Page({ user, name, count, items }) {
 }`);
   assert.match(result.code, /title=\{m\.greeting\.hello\(\{ name \}\)\}/);
   assert.match(result.code, /\{m\.welcome\(\{ 0: user\.name, count, 1: items\.length \}\)\}/);
-  // plural() needs an ICU plural written by hand; the macro stays and is reported.
-  assert.match(result.code, /t`\$\{plural\(count/);
-  assert.equal(result.replacements, 2);
-  assert.deepEqual(codes(result), ['MANUAL_REVIEW']);
-  assert.match(result.skipped[0].reason, /plural\(\) inside a message/);
+  // plural() inside the template is part of its message, an ICU plural.
+  assert.match(result.code, /const choice = m\.items\.count\(\{ count \}\);/);
+  assert.equal(result.replacements, 3);
+  assert.deepEqual(result.skipped, []);
   parses(result.code);
 });
 
@@ -108,7 +110,7 @@ export const labels = [msg\`Light\`, msg({ message: 'Light', context: 'theme' })
 });
 
 test('<Trans> children become the message Lingui extracts, rich() when they hold elements', () => {
-  const result = lingui(`import { Trans } from '@lingui/react/macro';
+  const result = lingui(`import { Plural, Trans } from '@lingui/react/macro';
 export function Page({ timeAgo, user, n, name }) {
   return <div>
     <Trans>
@@ -139,10 +141,9 @@ export function Page({ timeAgo, user, n, name }) {
   assert.match(result.code, /\{rich\(m\.docs, \{ tag0: \(children\) => <a href="\/docs">\{children\}<\/a> \}\)\}/);
   assert.match(result.code, /\{m\.explicit\.children\(\{ name \}\)\}/);
   assert.match(result.code, /\{m\.direction\.left\(\)\}/);
-  assert.match(result.code, /<Trans>You have <Plural value=\{n\}/);
-  assert.equal(result.replacements, 9);
-  assert.deepEqual(codes(result), ['MANUAL_REVIEW']);
-  assert.match(result.skipped[0].reason, /<Plural> inside <Trans>/);
+  assert.match(result.code, /\{m\.items\.you\(\{ n \}\)\}/);
+  assert.equal(result.replacements, 10);
+  assert.deepEqual(result.skipped, []);
   parses(result.code);
 });
 
