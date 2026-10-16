@@ -755,8 +755,16 @@ function factoryPattern(factories: string | readonly string[]): string {
   return values.map(item => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
 }
 
-function namespaceArgumentInfo(argument: string | undefined): { namespace?: string; dynamic?: boolean } {
+function namespaceArgumentInfo(argument: string | undefined, arrays = false): { namespace?: string; dynamic?: boolean } {
   if (!argument) return {};
+  // i18next's `useTranslation(['chat', 'common'])`: `t` reads the first namespace, and
+  // `common:key` or `{ ns: 'common' }` the others. An empty list is the default namespace.
+  const list = arrays ? /^\s*\[([^\]]*)\]/.exec(argument) : undefined;
+  if (list) {
+    const items = list[1]!.split(',').map(item => item.trim()).filter(Boolean);
+    const names = items.map(item => staticString(item));
+    return names.every(name => name !== undefined && name !== '') ? (names.length ? { namespace: names[0]! } : {}) : { dynamic: true };
+  }
   const direct = staticString(argument) ?? /^\s*(['"])([^'"\\]*)\1/.exec(argument)?.[2];
   if (direct) return { namespace: direct };
   const namespace = /\bnamespace\s*:\s*/.exec(argument);
@@ -783,7 +791,7 @@ function destructuredBindings(text: string, factories: string | readonly string[
       diagnostics.push({ callee: property, reason: 'translation factory call is unclosed; repair the source before migration', offset: match.index });
       continue;
     }
-    const argument = text.slice(open + 1, close), namespaceInfo = namespaceArgumentInfo(argument);
+    const argument = text.slice(open + 1, close), namespaceInfo = namespaceArgumentInfo(argument, includeKeyPrefix);
     const dynamicFactoryOptions = strictFactoryOptions && argument.trim() && argument.trim() !== '{}';
     const keyPrefixMatch = includeKeyPrefix ? /\bkeyPrefix\s*:\s*([^,}]+)/.exec(argument) : undefined;
     const keyPrefix = keyPrefixMatch ? staticString(keyPrefixMatch[1]!) : undefined;
@@ -2453,6 +2461,26 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   // no equivalent on the generated message object. Report these explicitly
   // instead of silently leaving a call that would reference a removed helper
   // (Next's t.raw/t.has/t.markup are the common example).
+  // next-intl's t.rich(key, values) renders tags through callbacks, as rich() does with the
+  // same values: `rich(m.ns.key, values)`. Returns false when the call was not rewritten.
+  const nextIntlRich = (binding: Binding, start: number, written: string): boolean => {
+    const report = (reason: string, code?: string): boolean => { skipped.push({ callee: `${binding.callee}.rich`, reason, offset: start, ...(code ? { code } : {}) }); return true; };
+    if (written.includes('?.')) return false;
+    if (binding.ambiguous) return report('translation binding has multiple namespace or scope declarations; qualify the helper before migration');
+    if (!customBinding(binding) && !bindingScopeAvailable(text, binding.callee, start, mask, bindingScopeCache)) return report('translation binding is outside the lexical scope of its factory declaration; rewrite this call manually');
+    if (!customBinding(binding) && (parsedShadowedStarts?.has(start) || shadowedByParameter(text, binding.callee, start, mask) || shadowedByLocal(text, binding.callee, start, mask))) return report('translation binding is shadowed by a function parameter or local scope binding; rewrite this call manually');
+    if (binding.namespaceDynamic) return report('translation namespace or keyPrefix is dynamic; provide a static namespace or migrate this boundary manually');
+    const open = start + written.lastIndexOf('('), close = parsedCallEnds?.get(start) !== undefined ? parsedCallEnds.get(start)! - 1 : closingParenthesis(text, open, mask);
+    if (close === undefined) return report('unclosed call');
+    const args = argumentsOf(text, open, close, mask), key = staticString(args[0] ?? '');
+    if (key === undefined) return report(args[0]?.trim().startsWith('`') && args[0].includes('${') ? 'message key is a dynamic template literal' : 'message key is dynamic');
+    if (args.length > 2) return report('call has unsupported extra arguments');
+    const id = renamed(binding.namespace ? `${binding.namespace}.${key}` : key);
+    if (allowedIds && !allowedIds.has(id)) return report(`message id ${JSON.stringify(id)} is absent from generated message types`, 'UNKNOWN_MESSAGE_ID');
+    const occupiedKey = `${start}:${close}`;
+    if (!occupied.has(occupiedKey)) { occupied.add(occupiedKey); replacements.push({ start, end: close + 1, text: `rich(${messageAccess(root, id)}, ${args[1]?.trim() || '{}'})`, rich: true }); }
+    return true;
+  };
   for (const { activeFormat, bindings: activeBindings } of bindingSets) {
     const allowedMembers = new Set<string>();
     for (const binding of activeBindings) {
@@ -2461,6 +2489,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       for (const match of text.matchAll(new RegExp(`\\b${escaped}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)\\s*\\(`, 'g'))) {
         if (parsedCallStarts && !parsedCallStarts.has(match.index!)) continue;
         if (allowedMembers.has(match[1]!)) continue;
+        if (activeFormat === 'next-intl' && match[1] === 'rich' && nextIntlRich(binding, match.index!, match[0])) continue;
         skipped.push({ callee: `${binding.callee}.${match[1]}`, reason: `${activeFormat ?? 'custom'} translation helper member is not supported by the generated messages object; migrate this member manually`, offset: match.index });
       }
     }

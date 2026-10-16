@@ -139,3 +139,45 @@ export default async function Page() {
 `, 'next-intl', { filename: 'page.tsx' });
   assert.deepEqual(unbound(next).map(([callee, source]) => [callee, source.split(' ')[0]]), [['t', 'a'], ['navT', 'a'], ['navT.rich', 'a']]);
 });
+
+test('useTranslation with a static namespace list binds its first namespace', () => {
+  const result = codemodSource(`import { useTranslation } from 'react-i18next';
+export function Chat() {
+  const { t } = useTranslation(['chat', 'common']);
+  return t('send') + t('common:cancel') + t('retry', { ns: 'common' });
+}
+`, 'react-i18next', { filename: 'chat.tsx' });
+  assert.match(result.code, /m\.chat\.send\(\) \+ m\.common\.cancel\(\) \+ m\.common\.retry\(\)/);
+  assert.equal(result.skipped.filter(item => item.code !== 'INCUMBENT_RUNTIME_IMPORT').length, 0);
+
+  const dynamic = codemodSource(`import { useTranslation } from 'react-i18next';
+export function Chat({ ns }) {
+  const { t } = useTranslation([ns, 'common']);
+  return t('send');
+}
+`, 'react-i18next', { filename: 'chat.tsx' });
+  assert.equal(dynamic.replacements, 0);
+  assert.match(dynamic.skipped[0].reason, /namespace or keyPrefix is dynamic/);
+});
+
+test('next-intl t.rich becomes rich() with the same values, and t.markup stays reported', () => {
+  const result = codemodSource(`import { useTranslations } from 'next-intl';
+export function Notice({ name }) {
+  const t = useTranslations('notice');
+  return <p>{t.rich('body', { name, link: chunks => <a href="/docs">{chunks}</a> })} {t.rich('plain')} {t.markup('html', { b: c => \`<b>\${c}</b>\` })}</p>;
+}
+`, 'next-intl', { filename: 'notice.tsx' });
+  assert.match(result.code, /import \{ rich \} from '@nordbeam\/locale\/react\/rich';/);
+  assert.match(result.code, /rich\(m\.notice\.body, \{ name, link: chunks => <a href="\/docs">\{chunks\}<\/a> \}\)/);
+  assert.match(result.code, /rich\(m\.notice\.plain, \{\}\)/);
+  assert.deepEqual(result.skipped.filter(item => item.code !== 'INCUMBENT_RUNTIME_IMPORT').map(item => item.callee), ['t.markup']);
+
+  const dynamic = codemodSource(`import { useTranslations } from 'next-intl';
+export function Notice({ key }) {
+  const t = useTranslations('notice');
+  return t.rich(key, {});
+}
+`, 'next-intl', { filename: 'notice.tsx' });
+  assert.equal(dynamic.replacements, 0);
+  assert.equal(dynamic.skipped[0].code, 'DYNAMIC_MESSAGE_KEY');
+});
