@@ -305,7 +305,8 @@ test('Lingui source macros migrate through an extracted catalog source map', () 
   assert.match(tagged.code, /m\.hash\.logout\(\)/);
   assert.equal(tagged.compatibility.fallbackRequired, false);
   const msgTagged = codemodSource("import {msg} from '@lingui/macro'; msg\`Logout\`;", 'lingui', { messageIdBySource: { Logout: 'hash.logout' }, messageIds: ['hash.logout'] });
-  assert.match(msgTagged.code, /m\.hash\.logout\(\)/);
+  // msg is lazy: it becomes the message function, called where the descriptor was read.
+  assert.equal(msgTagged.code.trim(), 'm.hash.logout;');
   const unmapped = codemodSource("const {t}=useLingui(); t`Unknown`;", 'lingui');
   assert.ok(unmapped.skipped.some(item => item.reason.includes('source-to-id mapping')));
   assert.equal(unmapped.compatibility.fallbackStrategy, 'lazy-legacy-boundary');
