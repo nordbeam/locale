@@ -1,6 +1,6 @@
 {
   "name": "@nordbeam/locale",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Nordbeam Locale runtime: locale loading and the React, Vue, Svelte, Solid, Next.js and TanStack Start adapters for messages compiled by nordbeam-locale",
   "keywords": [
     "i18n",
@@ -125,7 +125,7 @@
     "solid-js": "^1.8.0",
     "svelte": "^4.0.0 || ^5.0.0",
     "vue": "^3.3.0",
-    "nordbeam-locale": "0.6.0"
+    "nordbeam-locale": "0.6.1"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-router": {

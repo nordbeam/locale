@@ -1,6 +1,6 @@
 {
   "name": "nordbeam-locale",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Nordbeam Locale: compile ICU translations into typed, tree-shakable JavaScript with lazy locale loading. The CLI, compiler, Vite and Next.js plugins, and test helpers; apps import the runtime from @nordbeam/locale.",
   "keywords": [
     "i18n",
@@ -139,7 +139,7 @@
     "./package.json": "./package.json"
   },
   "peerDependencies": {
-    "@nordbeam/locale": "0.6.0",
+    "@nordbeam/locale": "0.6.1",
     "vite": "^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "peerDependenciesMeta": {
