@@ -89,8 +89,12 @@ Additive:
   `UNKNOWN_INTL_LOCALE` and `INVALID_INTL_LOCALE` errors; `migrate-project`
   reports the `LINGUI_PO_QUOTES`, `LINGUI_OBSOLETE_INCLUDED`,
   `LINGUI_WHITESPACE_TRIMMED`, `LINGUI_SOURCE_ID_TEXT`, `MIGRATION_TEXT_CHANGED`
-  and `MIGRATION_ID_RENAMED` warnings. `capabilities` lists the `lingui-po`
+  and `MIGRATION_ID_RENAMED` warnings; `codemod` and `migrate-project` report
+  the `UNBOUND_TRANSLATOR` skip. `capabilities` lists the `lingui-po`
   catalog format.
+- `codemod` skips carry `offset`, `line` and `column` in the file as it is on
+  disk; they used to point into the codemod's last rewrite pass. Import residue
+  (`INCUMBENT_RUNTIME_IMPORT`) carries `line` and `column` too.
 - `migrate-project` results add `renamedIds` and `catalogs[].format`. A run
   that cannot convert its catalogs fails with `COMMAND_FAILED` as `errors[0]`,
   followed by one error per failing message with `code` (such as

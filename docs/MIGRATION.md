@@ -294,10 +294,10 @@ single values argument. Static next-intl/i18next namespaces become key prefixes.
 
 | Format | Recognized source shapes |
 | --- | --- |
-| i18next / react-i18next / next-i18next | `useTranslation` aliases, namespace + `keyPrefix`, default/named `i18next.t`, self-closing `<Trans i18nKey>` |
-| next-intl | `useTranslations`, awaited `getTranslations`, object namespaces; `t.rich` is reported for the separate Nordbeam rich-renderer migration |
-| FormatJS / React Intl | `useIntl().formatMessage`, destructured aliases, injected class calls, self-closing `<FormattedMessage>` |
-| Lingui | `useLingui` `i18n._`/destructured `_` (descriptors keep their `values`, also inside `defineMessage()`), explicit-ID `<Trans>` (`id={'x'}` and finite conditionals such as `id={open ? 'a' : 'b'}` included), `<Trans components={[…]}>` as `rich(m.x, { tag0: … })`, explicit descriptor macros, and source macros when a catalog supplies an unambiguous source-to-ID map |
+| i18next / react-i18next / next-i18next | `useTranslation` aliases, namespace + `keyPrefix`, a static namespace list (`useTranslation(['chat', 'common'])` binds the first; `common:key` and `{ ns }` reach the others), default/named `i18next.t`, self-closing `<Trans i18nKey>` |
+| next-intl | `useTranslations`, awaited `getTranslations`, object namespaces; `t.rich(key, values)` becomes `rich(m.key, values)`; `t.markup`, `t.raw` and `t.has` are reported |
+| FormatJS / React Intl | `useIntl().formatMessage`, destructured aliases, injected class calls, `<FormattedMessage>`; descriptors inline, from a `defineMessages` constant in the file or imported by a relative path (`messages.key`, `{...messages.key}`, `cond ? messages.a : messages.b`); values holding elements or tag renderers become `rich(m.key, values)`; `tagName="strong"` becomes `<strong>{m.key()}</strong>` |
+| Lingui | `useLingui` `i18n._`/destructured `_` (descriptors keep their `values`, also inside `defineMessage()`), explicit-ID `<Trans>` (`id={'x'}` and finite conditionals such as `id={open ? 'a' : 'b'}` included), `<Trans components={[…]}>` as `rich(m.x, { tag0: … })`, explicit descriptor macros, and, with a source-to-ID map, Lingui 4 and 5 source macros: `` t`Hello ${name}` `` (other expressions numbered `{0}` as Lingui extracts them), `` _(msg`…`) ``, `t({ message })` from `useLingui`, `msg({ message, context })`, and `<Trans>` children, with elements as `rich()` slots; `msg` and `defineMessage` become the message function, since Lingui translates a descriptor where it is read |
 | Vue/Nuxt i18n | aliased `t` from `useI18n` |
 | Tolgee | aliased `t` from `useTranslate` |
 | next-international | function or destructured `t` returned by `useI18n` |
@@ -309,8 +309,18 @@ single values argument. Static next-intl/i18next namespaces become key prefixes.
 `--format auto` applies every proven binding detector, which is useful in a
 monorepo or an incremental migration containing more than one library.
 
+A translator that no hook binds is reported as `UNBOUND_TRANSLATOR`, not
+rewritten: one passed in as a parameter (`(t: TFunction) => …`), taken from props
+(`this.props.t`, `injectIntl`'s `intl`), or held in another local (`const [t] =
+await Promise.all([getTranslations('a')])`). The codemod cannot bind `m` there.
+Pass the messages object or the message functions instead, or bind the hook in
+that component.
+
 For source-message systems such as Lingui, `--message-id-map` accepts a JSON
-object whose keys are exact source strings and whose values are generated IDs.
+object whose keys are exact source strings and whose values are generated IDs
+(`{"Hello {name}": "home.greeting"}`). A Lingui 4 or 5 project that uses the
+source text as its IDs needs one, or no source macro resolves; `migrate-project`
+derives it from the migrated catalogs.
 The codemod rejects ambiguous array-valued entries. Its `compatibility` report
 lists `directRewrites`, `fallbackFiles`, and a per-file plan: files with no
 fallback can drop the legacy lookup map, while unresolved dynamic files retain

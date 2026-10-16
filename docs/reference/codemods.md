@@ -53,6 +53,38 @@ branches) are rewritten; any other expression is `DYNAMIC_MESSAGE_KEY`.
 `i18n._(descriptor)` keeps the descriptor's `values`, also inside
 `defineMessage()`, `msg()` and `t()`.
 
+Lingui 4 and 5 source macros resolve through `messageIdBySource`. A tagged
+macro's placeholders follow Lingui's extractor: `` t`Hi ${name}` `` reads
+`Hi {name}` and becomes `m.id({ name })`, and any other expression is numbered,
+so `` t`Hi ${user.name}` `` reads `Hi {0}` and becomes `m.id({ 0: user.name })`.
+A translator around a macro (`` _(msg`…`) ``, `i18n._(msg({ message }))`) is
+one call, and so are `t({ message })` and `` t(msg`…`) `` from `useLingui()`.
+`<Trans>` children are read the way Lingui extracts them (whitespace, entities,
+`{"text"}`, numbered elements); with elements the call is `rich(m.id, { tag0:
+(children) => … })`. `msg` and `defineMessage` become the message function, not
+a call, because Lingui translates a descriptor where it is read. A message with
+a `context` resolves through a `context\u0004source` key. `plural()`,
+`select()` and `<Plural>` inside a message are reported.
+
+react-intl descriptors resolve from a `defineMessages` or `defineMessage`
+constant in the same file. `codemodProject` also finds the ones a file imports
+by a relative path and passes them as `formatjsMessages`; `codemodSource` alone
+reads only its own file. A constant, or a relative import of one, that the
+rewrite left unread is removed, unless it is exported. Values holding an element,
+a tag renderer or a name bound to an element become `rich(m.id, values)`, and
+`tagName` becomes the wrapping element. next-intl `t.rich(key, values)` becomes
+`rich(m.key, values)`.
+
+A translator that no hook binds, passed in as a parameter, taken from props or
+an HOC (`this.props.t`, `injectIntl`), or held in another local, is reported as
+`UNBOUND_TRANSLATOR` in files that use the library. The codemod cannot bind `m`
+there; pass the messages object or message functions instead.
+
+A skip's `offset`, `line` and `column` point into the text the codemod was
+given. `codemodProject` reruns `codemodSource` until nested calls converge and
+maps each position to the file on disk: the file as it was read for a preview, and
+the written file with `write`.
+
 `messagesImport` is an explicit opt-in source option (or `--messages-import <specifier>` on
 `codemod`). When a call is rewritten, it adds or merges a value import for the configured
 messages object; files with no replacements are left unchanged. JavaScript/TypeScript files

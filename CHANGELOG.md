@@ -155,6 +155,52 @@ with one more type change, in the TanStack Start adapter:
 
 ### `@nordbeam/locale-migrate`
 
+The codemod was run, as a preview, on 15 open-source apps: four each on Lingui,
+react-i18next and next-intl, and three on react-intl. It now rewrites 50,518
+calls where it rewrote 44,364, and reports 7,727 constructs instead of 14,161
+(leftover imports of the old library not counted), although 1,474 of those are
+calls it used to pass over without a word.
+
+- **Translators that no hook binds are reported: `UNBOUND_TRANSLATOR`.** A
+  call through a translator passed in as a parameter (`t: TFunction`,
+  `intl: IntlShape`, `i18n: I18n`), taken from props or an HOC
+  (`this.props.t`, `injectIntl`, `withTranslation`), or held in another
+  local (`const [t] = await Promise.all([getTranslations('a')])`) was neither
+  rewritten nor reported unless the same file also bound a hook, so such files
+  looked finished. The skip names where the translator comes from; pass the
+  messages object or the message functions instead.
+- **Skip positions point at the file on disk.** The project codemod reruns until
+  nested calls converge, and it reported the positions of its last pass, so a
+  skip after an earlier rewrite in the same file was off by a line or more.
+- **react-intl `defineMessages`.** `intl.formatMessage(messages.key)`,
+  `<FormattedMessage {...messages.key} />` and `cond ? messages.a :
+  messages.b` resolve the constant in the same file or in a file imported by a
+  relative path, and the constant and its import go once nothing reads them.
+  mastodon's rewrites went from 1,008 to 1,650, and mattermost's from 5,446 to
+  6,319.
+- **Elements in values render through `rich()`.** react-intl values that hold
+  an element, a tag renderer or a name bound to an element become
+  `rich(m.key, values)`. A name bound to an element (`values={{
+  settings_link }}`) used to become a plain call that printed
+  `[object Object]`; in a Lingui or i18next component it is now reported.
+  `tagName="strong"` becomes `<strong>{m.key()}</strong>`.
+- **Lingui 4 and 5.** With a source-to-ID map: placeholders in tagged macros
+  (`` t`Hi ${name}` `` becomes `m.id({ name })`, and other expressions
+  are numbered as Lingui extracts them), a translator around a macro
+  (`` _(msg`…`) ``), `t(descriptor)` from `useLingui()`,
+  `msg({ message, context })`, and `<Trans>` children read with Lingui's
+  whitespace rules, with elements as `rich()` slots. `msg` and
+  `defineMessage` now become the message function rather than a call, since
+  Lingui translates a descriptor where it is read; before, the text was fixed
+  in the locale active when the module loaded. On the four Lingui apps, rich
+  text reports went from 730 to 4 and dynamic-key reports from 4,469 to 434.
+- **next-intl `t.rich`** becomes `rich(m.key, values)`.
+- **react-i18next namespace lists.** `useTranslation(['chat', 'common'])`
+  binds its first namespace, as react-i18next does, instead of being reported
+  as dynamic. lobe-chat's rewrites went from 8,840 to 10,661.
+- **`--message-id-map` is described correctly**: a JSON object from each
+  source text to its message ID. The help called it a map from source file to
+  ID prefix. A Lingui 4 or 5 project that uses source text as IDs needs one.
 - **Lingui 3 projects.** `migrate-project --from . --format lingui` reads the
   catalogs that `package.json#lingui` or `.linguirc` names, and Lingui's
   `sourceLocale` becomes the base locale; `<locale>/messages.po` folders are

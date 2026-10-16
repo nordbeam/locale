@@ -17,7 +17,7 @@ npx nordbeam-locale migrate-project --from <merged catalog dir> --format react-i
 
 ## What the codemod rewrites
 
-`useTranslation` bindings (aliases, namespace and `keyPrefix`), default and named `i18next.t`, and self-closing `<Trans i18nKey="x" />`. Static keys become nested calls: `t('cart.items', { count: 3 })` becomes `m.cart.items({count: 3})`. Left alone and reported: dynamic keys (`DYNAMIC_MESSAGE_KEY`, `DYNAMIC_TEMPLATE_KEY`), `<Trans>` with children (`RICH_MESSAGE`), call options it cannot translate (`UNSUPPORTED_OPTIONS`), and any hook whose destructuring also pulls other state such as `i18n` (the binding is skipped, so `m` ends up unbound: bind it yourself). `i18n.changeLanguage(...)` is not a translation call.
+`useTranslation` bindings (aliases, namespace and `keyPrefix`, and a static namespace list such as `useTranslation(['chat', 'common'])`, whose first namespace is the default while `common:key` or `{ ns: 'common' }` reach the others), default and named `i18next.t`, and self-closing `<Trans i18nKey="x" />`. Static keys become nested calls: `t('cart.items', { count: 3 })` becomes `m.cart.items({count: 3})`. Left alone and reported: dynamic keys (`DYNAMIC_MESSAGE_KEY`, `DYNAMIC_TEMPLATE_KEY`), `<Trans>` with children (`RICH_MESSAGE`), call options it cannot translate (`UNSUPPORTED_OPTIONS`), and any hook whose destructuring also pulls other state such as `i18n` (the binding is skipped, so `m` ends up unbound: bind it yourself). A `t` that arrives as a parameter (`t: TFunction`) or from props (`withTranslation`, `this.props.t`) is reported as `UNBOUND_TRANSLATOR`. `i18n.changeLanguage(...)` is not a translation call.
 
 ## After the tool
 
