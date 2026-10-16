@@ -17,6 +17,25 @@ The preview and the codemod report every construct they refused to rewrite as `c
 | `MISSING_MESSAGES_BINDING` | A rewritten file calls `m` without binding it | Bind it with the framework adapter (see [finishing.md](finishing.md)), or pass `--messages-import` for a module that exports `m`; when it exports a hook instead (`useMessages`), add `--messages-hook useMessages` and each `const t = useT()` becomes `const m = useMessages()`. |
 | `INCUMBENT_RUNTIME_IMPORT` | The file still imports the old runtime | Expected until the last call and provider are migrated; remove the import then. |
 
+## Pass message functions, not IDs
+
+Most `DYNAMIC_MESSAGE_KEY` skips are IDs that travel as data: a prop (`<Field errorMsg="form.required" />`, then `t(props.errorMsg)` in the child), a list of tabs or options with `label: 'nav.home'`, or a Lingui descriptor (`msg`, `defineMessage`) handed to another component. The call that translates is far from the literal, so the codemod cannot rewrite it. Move the lookup to where the literal is and pass the message function:
+
+```tsx
+// Before: the child translates an ID it was given.
+<Field errorMsg="form.required" />
+const Field = ({ errorMsg }) => <p>{t(errorMsg)}</p>;
+
+// After: the parent names the message, the child calls it.
+<Field errorMsg={m.form.required} />
+const Field = ({ errorMsg }: { errorMsg: () => string }) => <p>{errorMsg()}</p>;
+```
+
+- Messages with arguments keep their own type: `errorMsg: Messages['form']['tooLong']`, called as `errorMsg({ max: 80 })`. `Messages` comes from the generated `messages.js` types.
+- Data defined outside a component cannot reach `m`, which a hook or the provider supplies. Store a function of `m` instead (`{ label: (m: Messages) => m.nav.home }`, called as `tab.label(m)()`), or build the list inside the component.
+- A scope computed from code takes the message from the file that writes `m.form.required`, so the scope stays right without listing the ID in `messages`. An ID read back through `m[id]()` is invisible to that crawl, and `check` warns about it with `SCOPE_DYNAMIC_ACCESS`.
+- Do not rewrite these into `m[id]()` to clear the skip: it compiles, but loses the type check on the ID and the scope crawl.
+
 ## Framework boundaries (always manual)
 
 | Code | Replace with |
