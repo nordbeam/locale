@@ -6,6 +6,8 @@ import { parse, parseExpression } from '@babel/parser';
 import { discoverConfig } from 'nordbeam-locale/internal/migrate';
 import { createPlan } from 'nordbeam-locale/internal/migrate';
 import type { FilePlan } from 'nordbeam-locale/internal/migrate';
+import { isLinguiMacro, linguiCall, linguiMacroMessage, linguiTaggedTemplates, linguiTransMessage, linguiValues, resolveLinguiMessage } from './codemod-lingui.js';
+import type { LinguiLookup } from './codemod-lingui.js';
 
 export type CodemodFormat = 'auto' | 'i18next' | 'next-intl' | 'formatjs' | 'lingui'
   | 'vue-i18n' | 'tolgee' | 'next-international' | 'typesafe-i18n'
@@ -1051,8 +1053,10 @@ function bindings(text: string, format: Exclude<CodemodFormat, 'auto'>, diagnost
     const factories = importedLocals(text, ['@lingui/react', '@lingui/react/macro'], ['useLingui']);
     for (const item of destructuredBindings(text, factories, 'i18n', false, diagnostics)) result.push({ callee: `${item.name}._`, kind: 'message' });
     for (const item of destructuredBindings(text, factories, '_', false, diagnostics)) result.push({ callee: item.name, kind: 'message' });
+    // The macro useLingui's t is a tag (`t\`Save\``) and a call taking a descriptor (`t({ message })`).
+    for (const item of destructuredBindings(text, importedLocals(text, ['@lingui/react/macro', '@lingui/macro'], ['useLingui'], false), 't', false, diagnostics)) result.push({ callee: item.name, kind: 'descriptor' });
     for (const match of codeMatches(text, /\bimport\s*\{([^}]*)\}\s*from\s*['"]@lingui\/(?:core\/)?macro['"]/g)) for (const field of match[1]!.split(',')) {
-      const imported = /^\s*(?:t|msg)(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(field);
+      const imported = /^\s*(?:t|msg|defineMessage)(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(field);
       if (imported) result.push({ callee: imported[1] ?? field.trim().split(/\s+/)[0]!, kind: 'descriptor' });
     }
   } else if (format === 'vue-i18n') {
@@ -1363,8 +1367,11 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
   const elements = jsxElements
     ? [...jsxElements.keys()].sort((left, right) => left - right).filter(start => { head.lastIndex = start; return head.test(text); }).map(start => ({ 0: '', 1: undefined, index: start }))
     : [...text.matchAll(pattern)].map(found => ({ 0: found[0], 1: found[1], index: found.index! }));
+  // A Lingui <Trans> inside another's children is part of the outer message.
+  const consumedTrans = new Set<number>();
   for (const found of elements) {
     if (jsxStarts && !jsxStarts.has(found.index)) continue;
+    if (consumedTrans.has(found.index)) continue;
     const bounds = jsxElements?.get(found.index);
     const match: { 0: string; 1: string | undefined; index: number } = bounds
       ? { 0: text.slice(found.index, bounds.end), 1: bounds.closingStart === undefined ? undefined : text.slice(bounds.openingEnd, bounds.closingStart), index: found.index }
@@ -1375,7 +1382,7 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
     }
     const componentName = /^<([A-Za-z_$][\w$]*)/.exec(match[0])?.[1] ?? component;
     const children = match[1];
-    if (children !== undefined && /[<{]/.test(children)) {
+    if (children !== undefined && /[<{]/.test(children) && format !== 'lingui') {
       skipped.push({ callee: `<${componentName}>`, reason: 'non-self-closing component contains rich or expression children', offset: match.index });
       continue;
     }
@@ -1391,6 +1398,24 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
     if (opening.slice(componentName.length + 1).includes('<') && (!slots || (format === 'lingui' && jsxAttribute(match[0], 'render') !== undefined))) {
       skipped.push({ callee: `<${componentName}>`, reason: 'component contains nested JSX and requires a rich-component migration', offset: match.index });
       continue;
+    }
+    // A Lingui <Trans> with children is the message the macro extracts from them: its text,
+    // `{name}` and positional placeholders, and numbered elements that become rich() slots.
+    if (format === 'lingui' && children !== undefined && children.trim()) {
+      const message = linguiTransMessage(match[0], new Set([componentName, 'Trans']));
+      if (!message) {
+        if (/[<{]/.test(children)) { skipped.push({ callee: `<${componentName}>`, reason: 'non-self-closing component contains rich or expression children', offset: match.index }); continue; }
+      } else {
+        if ('unsupported' in message) { skipped.push({ callee: `<${componentName}>`, reason: message.unsupported, offset: match.index }); continue; }
+        const resolved = resolveLinguiMessage(message, { sourceIds: sourceIds ?? new Map(), ...(allowedIds ? { allowedIds } : {}), renamed });
+        if ('reason' in resolved) { skipped.push({ callee: `<${componentName}>`, reason: resolved.reason, offset: match.index, ...(resolved.code ? { code: resolved.code } : {}) }); continue; }
+        const richCall = message.slots.length > 0;
+        const call = richCall ? `rich(${messageAccess(root, resolved.id)}, { ${[...message.values, ...message.slots].join(', ')} })` : `${messageAccess(root, resolved.id)}(${linguiValues(message)})`;
+        result.push({ start: match.index!, end: match.index! + match[0].length, ...(richCall ? { rich: true } : {}),
+          text: outside ? `<${context.messageComponent} render={(${root}) => ${call}} />` : expressionContext(match.index!) ? call : `{${call}}` });
+        for (const offset of message.nested ?? []) consumedTrans.add(match.index! + offset);
+        continue;
+      }
     }
     const idField = idAttribute === 'id' ? jsxIdAttribute(match[0]) : { id: new RegExp(`\\b${idAttribute}\\s*=\\s*(['"])([^'"\\\\]*)\\1`).exec(match[0])?.[2]
       ?? new RegExp(`\\b${idAttribute}\\s*=\\s*\\{\\s*(['"])([^'"\\\\]*)\\1\\s*\\}`).exec(match[0])?.[2] };
@@ -1836,7 +1861,7 @@ function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten
     if (active === 'next-intl') add({ modules: ['next-intl', 'next-intl/server'], factories: ['useTranslations', 'getTranslations'] });
     else if (active === 'i18next') add({ modules: ['react-i18next', 'next-i18next', 'i18next'], factories: ['useTranslation'], properties: ['t'], direct: ['t', 'Trans'] });
     else if (active === 'formatjs') add({ modules: ['react-intl'], factories: ['useIntl'], properties: ['formatMessage'], direct: ['FormattedMessage'] });
-    else if (active === 'lingui') add({ modules: ['@lingui/react', '@lingui/react/macro', '@lingui/core/macro', '@lingui/macro'], factories: ['useLingui'], properties: ['i18n', '_'], direct: ['Trans', 't', 'msg'] });
+    else if (active === 'lingui') add({ modules: ['@lingui/react', '@lingui/react/macro', '@lingui/core/macro', '@lingui/macro'], factories: ['useLingui'], properties: ['i18n', '_', 't'], direct: ['Trans', 't', 'msg', 'defineMessage'] });
     else if (active === 'vue-i18n') add({ modules: ['vue-i18n', '@nuxtjs/i18n'], factories: ['useI18n'], properties: ['t'] });
     else if (active === 'tolgee') add({ modules: ['@tolgee/react'], factories: ['useTranslate'], properties: ['t'] });
     else if (active === 'next-international') add({ modules: ['next-international', 'next-international/client'], factories: ['useI18n'], properties: ['t'] });
@@ -2268,6 +2293,14 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
     if (!source || typeof id !== 'string' || !id) throw new TypeError('messageIdBySource entries must map nonempty source strings to nonempty IDs.');
     sourceIds.set(source, renamed(id));
   }
+  // A translator call that reads a Lingui macro (`_(msg\`…\`)`) becomes one message call; the
+  // macro inside it is consumed, so no other pass rewrites or reports it.
+  const linguiLookup: LinguiLookup = { sourceIds, ...(allowedIds ? { allowedIds } : {}), renamed };
+  const linguiMacros = new Set(['t', 'msg', 'defineMessage', ...importedLocals(text, ['@lingui/core/macro', '@lingui/macro', '@lingui/react/macro'], ['t', 'msg', 'defineMessage'], false)]);
+  const consumedMacros = new Set<number>();
+  const lazyMacros = new Set(importedLocals(text, ['@lingui/core/macro', '@lingui/macro'], ['msg', 'defineMessage'], false));
+  // `msg\`…\`.id` reads the id, not the message; whatever consumes it (a <Trans id>) decides.
+  const readsId = (end: number): boolean => /^\s*(?:\?\.|\.)\s*id\b/.test(text.slice(end));
   const normalized = normalizeFormat(format);
   const formats = normalized === 'auto' ? concreteFormats : [normalized as Exclude<CodemodFormat, 'auto'>];
   const native = formats.map(activeFormat => ({ activeFormat, bindings: bindings(text, activeFormat, skipped) }));
@@ -2362,6 +2395,20 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
         ? parsedCallEnds.get(start)! - 1 : closingParenthesis(text, open, mask);
       if (close === undefined) { skipped.push({ callee: binding.callee, reason: 'unclosed call', offset: start }); continue; }
       const args = argumentsOf(text, open, close, mask);
+      const macro = activeFormat === 'lingui' && args[0] ? linguiMacroMessage(args[0], linguiMacros) : undefined;
+      const lazy = activeFormat === 'lingui' && lazyMacros.has(binding.callee);
+      if (lazy && readsId(close + 1)) continue;
+      if (macro || (activeFormat === 'lingui' && args[0] && isLinguiMacro(args[0], linguiMacros))) consumedMacros.add(open + 1 + text.slice(open + 1).search(/\S/));
+      if (macro) {
+        if ('unsupported' in macro) { skipped.push({ callee: binding.callee, reason: macro.unsupported, offset: start }); continue; }
+        if (args.length > 2 || (args[1] && macro.values.length)) { skipped.push({ callee: binding.callee, reason: 'call has unsupported extra arguments', offset: start }); continue; }
+        const resolved = resolveLinguiMessage(macro, linguiLookup);
+        if ('reason' in resolved) { skipped.push({ callee: binding.callee, reason: resolved.reason, offset: start, ...(resolved.code ? { code: resolved.code } : {}) }); continue; }
+        const key = `${start}:${close}`; if (occupied.has(key)) continue; occupied.add(key);
+        replacements.push({ start, end: close + 1, text: linguiCall(messageAccess(root, resolved.id), linguiValues(macro) || args[1]?.trim() || '', lazy) });
+        pattern.lastIndex = close + 1;
+        continue;
+      }
       const descriptor = activeFormat === 'lingui' && binding.kind !== 'descriptor' && staticString(args[0] ?? '') === undefined ? linguiDescriptor(args[0] ?? '') : undefined;
       const localId = binding.kind === 'descriptor' ? formatJsId(args[0] ?? '')
         : activeFormat === 'lingui' ? staticString(args[0] ?? '') ?? descriptor?.id
@@ -2423,24 +2470,33 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       }
       const values = migratedValues.values;
       const key = `${start}:${close}`; if (occupied.has(key)) continue; occupied.add(key);
-      replacements.push({ start, end: close + 1, text: `${messageAccess(root, id)}(${values || ''})` });
+      replacements.push({ start, end: close + 1, text: lazy ? linguiCall(messageAccess(root, id), values || '', true) : `${messageAccess(root, id)}(${values || ''})` });
       pattern.lastIndex = close + 1;
     }
   }
   skipped.push(...wrapperDiagnostics(text, allBindings.map(binding => binding.callee)));
   if (formats.includes('lingui')) {
     const tagNames = destructuredBindings(text, importedLocals(text, ['@lingui/react', '@lingui/react/macro'], ['useLingui']), 't', false, skipped).map(item => item.name);
-    if (hasCodeMatch(text, /\bfrom\s*['"]@lingui\/(?:core\/)?macro['"]/g)) tagNames.push(...importedLocals(text, ['@lingui/core/macro', '@lingui/macro', '@lingui/react/macro'], ['t', 'msg']));
-    for (const name of new Set(tagNames)) {
-      const pattern = new RegExp(`\\b${name}\\s*\\x60([^\\x60]*)\\x60`, 'g');
-      for (const match of text.matchAll(pattern)) {
-        if (match[1]!.includes('${')) { skipped.push({ callee: `${name}\u0060…\u0060`, reason: 'Lingui tagged macro has dynamic expressions', offset: match.index }); continue; }
-        const source = match[1]!, id = sourceIds.get(source) ?? (allowedIds?.has(renamed(source)) ? renamed(source) : undefined);
-        if (!id) { skipped.push({ callee: `${name}\u0060…\u0060`, reason: 'Lingui source macro needs an unambiguous catalog source-to-id mapping', offset: match.index }); continue; }
-        if (allowedIds && !allowedIds.has(id)) { skipped.push({ callee: `${name}\u0060…\u0060`, reason: `message id ${JSON.stringify(id)} is absent from generated message types`, offset: match.index }); continue; }
-        replacements.push({ start: match.index!, end: match.index! + match[0].length, text: `${messageAccess(root, id)}()` });
-      }
+    if (hasCodeMatch(text, /\bfrom\s*['"]@lingui\/(?:core\/)?macro['"]/g)) tagNames.push(...importedLocals(text, ['@lingui/core/macro', '@lingui/macro', '@lingui/react/macro'], ['t', 'msg', 'defineMessage']));
+    const names = new Set(tagNames);
+    // Parsed, so a template holding backticks or `${}` is read whole. `${name}` becomes
+    // `{name}` and other expressions `{0}`, `{1}`…, as the macro extracts them.
+    for (const site of (names.size ? linguiTaggedTemplates(text, names) : undefined) ?? []) {
+      if (consumedMacros.has(site.start) || (lazyMacros.has(site.tag) && readsId(site.end))) continue;
+      const callee = `${site.tag}\u0060…\u0060`, macro = linguiMacroMessage(text.slice(site.start, site.end), names);
+      if (!macro) continue;
+      if ('unsupported' in macro) { skipped.push({ callee, reason: macro.unsupported, offset: site.start }); continue; }
+      const resolved = resolveLinguiMessage(macro, linguiLookup);
+      if ('reason' in resolved) { skipped.push({ callee, reason: resolved.reason, offset: site.start, ...(resolved.code ? { code: resolved.code } : {}) }); continue; }
+      replacements.push({ start: site.start, end: site.end, text: linguiCall(messageAccess(root, resolved.id), linguiValues(macro), lazyMacros.has(site.tag)) });
     }
+  }
+  // A consumed macro is part of the translator call that reads it.
+  if (consumedMacros.size) {
+    const kept = replacements.filter(replacement => !consumedMacros.has(replacement.start));
+    replacements.length = 0; replacements.push(...kept);
+    const reported = skipped.filter(item => item.offset === undefined || !consumedMacros.has(item.offset));
+    skipped.length = 0; skipped.push(...reported);
   }
   const jsxContext: JsxContext = { sourceIds, allowedIds, renamed, jsxStarts: parsedCalls?.jsxStarts, jsxChildStarts: parsedCalls?.jsxChildStarts, jsxStatementStarts: parsedCalls?.jsxExpressionStatementStarts, jsxElements: parsedCalls?.jsxElements,
     messageComponent: options.messageComponent, ...(options.richMessageIds ? { richIds: new Set(options.richMessageIds) } : {}) };
