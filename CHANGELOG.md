@@ -1,17 +1,20 @@
 # Changelog
 
-All notable changes to `@nordbeam/locale` and `@nordbeam/locale-migrate` are
-documented here. The project follows [Semantic Versioning](https://semver.org/);
-before 1.0, minor versions may contain breaking changes, and they are called
-out in this file.
+All notable changes to `@nordbeam/locale`, `nordbeam-locale` and
+`@nordbeam/locale-migrate` are documented here. The project follows
+[Semantic Versioning](https://semver.org/); before 1.0, minor versions may
+contain breaking changes, and they are called out in this file.
 
-## Unreleased
+## 0.5.0
 
 Breaking: the runtime and the build tooling are now separate packages, so a
-production install carries only the runtime. The rest are fixes and additions
-from migrating a production app (13,899 messages in four locales) from Lingui 3,
-with one more type change, in the TanStack Start adapter:
-`useHtmlAttributes().lang` is typed `string` (it was the locale type).
+production install carries only the runtime. Install `@nordbeam/locale` as a
+dependency and `nordbeam-locale` as a devDependency, and import the Vite plugin
+and the other build tools from `nordbeam-locale`; see below. One more type
+change, in the TanStack Start adapter: `useHtmlAttributes().lang` is typed
+`string` (it was the locale type). The rest are fixes and additions from
+migrating a production app (13,899 messages in four locales) from Lingui 3, and
+from running the codemod on 15 open-source apps.
 
 ### Two packages
 

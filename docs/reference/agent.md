@@ -57,7 +57,7 @@ nordbeam-locale init --agent
 - The files in each skill's `evals/` directory are maintainer test cases. They are
   not published in the package and not installed into projects.
 
-## Unreleased
+## Changes in 0.5
 
 `protocolVersion` stays `1`. The additions are backward compatible.
 
