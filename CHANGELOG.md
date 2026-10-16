@@ -5,6 +5,46 @@ All notable changes to `@nordbeam/locale`, `nordbeam-locale` and
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 contain breaking changes, and they are called out in this file.
 
+## 0.6.0
+
+No breaking changes. The source codemod (`@nordbeam/locale-migrate`) converts
+more after a second look at the 15 open-source apps from 0.5.0: run there, it
+rewrites 444 more calls (50,962), and the calls it reports fall from 7,727 to
+7,459, not counting the imports of the old library that stay until its last
+call is gone. `@nordbeam/locale` and `nordbeam-locale` change only their
+version, so the three packages keep matching versions.
+
+### @nordbeam/locale-migrate
+
+- **Lingui's choices convert.** `plural()`, `select()` and `selectOrdinal()`,
+  and `<Plural>`, `<Select>` and `<SelectOrdinal>`, on their own or inside a
+  message, become a call on the ICU message Lingui extracts from them:
+  `plural(count, { one: '# item', other: '# items' })` reads
+  `{count, plural, one {# item} other {# items}}` and becomes
+  `m.id({ count })`. A value other than a name is numbered as Lingui numbers
+  it, `0:` in `plural()` and `_0` on `<Plural>` are the exact case `=0`, an
+  `offset` comes first, and a case holding an element is a `rich()` slot. Only a choice imported from a
+  Lingui macro package is read; a `<Select>` from a UI library is not. In
+  0.5.0 a choice inside a message was reported and one on its own was not
+  reported at all. In the three surveyed apps that use them, about 300 of
+  their 330 choices convert. The rest are messages missing from catalogs that
+  were extracted before the code changed, and they are reported.
+- **Lingui 4 and 5 catalogs both resolve.** Lingui 5's Babel macro keeps JSX
+  whitespace as React renders it (`<Trans>Reason: </Trans>` keeps the trailing
+  space, and so does a final `{' '}`) and reads a template's cooked text;
+  Lingui 4 normalizes and trims. The codemod looks a message up in the first
+  spelling, then the second.
+- **A trailing comma after the last argument** (`t('key', values,)`, which
+  Prettier 3 writes in every multi-line call) no longer makes the call
+  "unsupported extra arguments", in every format. In the survey that was 103
+  calls in mattermost and 4 in mastodon, and 27 finite conditional keys in
+  lobe-chat (`t(open ? 'a' : 'b',)`) that now lower to one call per branch.
+- **`${{ name: value }}`**, Lingui 5's labelled placeholder, names the
+  placeholder like `ph({ name: value })`.
+- **`MESSAGE_ID_UNRESOLVED` says to run `lingui extract` first.** In the
+  survey, nearly every unresolved Lingui macro was a message added after the
+  catalog was last extracted.
+
 ## 0.5.0
 
 Breaking: the runtime and the build tooling are now separate packages, so a

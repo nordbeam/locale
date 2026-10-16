@@ -63,8 +63,21 @@ one call, and so are `t({ message })` and `` t(msg`…`) `` from `useLingui()`.
 `{"text"}`, numbered elements); with elements the call is `rich(m.id, { tag0:
 (children) => … })`. `msg` and `defineMessage` become the message function, not
 a call, because Lingui translates a descriptor where it is read. A message with
-a `context` resolves through a `context\u0004source` key. `plural()`,
-`select()` and `<Plural>` inside a message are reported.
+a `context` resolves through a `context\u0004source` key.
+
+Lingui's choices are messages too, on their own or inside another:
+`plural()`, `select()` and `selectOrdinal()`, and `<Plural>`, `<Select>` and
+`<SelectOrdinal>`. `plural(count, { one: '# item', other: '# items' })` reads
+`{count, plural, one {# item} other {# items}}` and becomes `m.id({ count })`;
+a value other than a name is numbered (`{0, plural, …}`), `0:` in `plural()` and
+`_0` on `<Plural>` are the exact case `=0`, and a case holding an element becomes a
+`rich()` slot. Only a choice imported from a Lingui macro package is read, so a
+`<Select>` from a UI library stays an element. A spread, a computed case or a
+dynamic `offset` is reported.
+
+A message is looked up first as Lingui 5 extracts it (JSX text as React renders
+it, every other character kept) and then as Lingui 4 does (whitespace normalized
+and the message trimmed), so a catalog extracted by either resolves.
 
 react-intl descriptors resolve from a `defineMessages` or `defineMessage`
 constant in the same file. `codemodProject` also finds the ones a file imports

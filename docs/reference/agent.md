@@ -57,6 +57,20 @@ nordbeam-locale init --agent
 - The files in each skill's `evals/` directory are maintainer test cases. They are
   not published in the package and not installed into projects.
 
+## Changes in 0.6
+
+`protocolVersion` stays `1`. No code is added or removed.
+
+- `codemod` converts Lingui's choices (`plural()`, `select()`,
+  `selectOrdinal()`, `<Plural>`, `<Select>`, `<SelectOrdinal>`). A choice inside
+  a message was `MANUAL_REVIEW` and one on its own was not reported; now one
+  the catalog does not hold is `MESSAGE_ID_UNRESOLVED`, with the ICU text it
+  looked for in `reason`, and one that cannot be read statically (a spread, a
+  computed case, a dynamic `offset`) is `MANUAL_REVIEW`.
+- The `MESSAGE_ID_UNRESOLVED` `action` starts with running `lingui extract`.
+- A call with a trailing comma after its last argument is no longer
+  `UNSUPPORTED_OPTIONS` ("call has unsupported extra arguments").
+
 ## Changes in 0.5
 
 `protocolVersion` stays `1`. The additions are backward compatible.
