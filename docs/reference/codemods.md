@@ -16,7 +16,11 @@ import { codemodSource, codemodProject } from '@nordbeam/locale-migrate/codemods
 
 - `codemodSource(text, format, options?)` — plan changes in one source file.
 - `codemodProject(options)` — scan and optionally write a source tree.
-- `readMessageIdBySourceFile(file, root?)` — read source-to-ID maps.
+- `readMessageIdBySourceFile(file, root?)` — read a source-to-ID map: a JSON object
+  from each source text (`"Hello {name}"`) to its message ID (`"home.greeting"`).
+  An array value is ambiguous and rejected. `codemod --message-id-map <file>` reads
+  the same file; a Lingui 4 or 5 project whose catalogs use source text as IDs needs
+  one, or no source macro resolves.
 - `CodemodFormat`, source/result/change/skip and compatibility plan types.
 - `CodemodStrictError` — thrown when strict mode encounters an unsafe skip.
 

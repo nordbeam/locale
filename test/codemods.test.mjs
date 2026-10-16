@@ -40,9 +40,10 @@ test('codemods handle server helpers, JSX components, aliases, and bracket escap
   const i18next = codemodSource(`const {ready, t: translate} = useTranslation('shop', {keyPrefix: 'cart'});\ntranslate('total'); <Trans i18nKey="items" count={count} values={values} />`, 'i18next');
   assert.match(i18next.code, /m\.shop\.cart\.total\(\)/);
   assert.match(i18next.code, /\{m\.items\(\{\.\.\.\(values\),count:count\}\)\}/);
-  const rich = codemodSource(`const t = useTranslations('Article'); t.rich('body', {strong});`, 'next-intl');
-  assert.equal(rich.replacements, 0);
-  assert.ok(rich.skipped.some(item => item.callee === 't.rich' && /not supported/.test(item.reason)));
+  const rich = codemodSource(`const t = useTranslations('Article'); t.rich('body', {strong}); t.raw('data');`, 'next-intl');
+  assert.equal(rich.replacements, 1);
+  assert.match(rich.code, /rich\(m\.Article\.body, \{strong\}\)/);
+  assert.ok(rich.skipped.some(item => item.callee === 't.raw' && /not supported/.test(item.reason)));
   const perCall = codemodSource(`const {t} = useTranslation(); t('title', {ns: 'account'}); t('legacy', 'Default'); <Trans ns="shop" i18nKey="empty" />`, 'i18next');
   assert.match(perCall.code, /m\.account\.title\(\)/);
   assert.match(perCall.code, /\{m\.shop\.empty\(\)\}/);

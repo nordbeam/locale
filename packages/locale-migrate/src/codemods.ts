@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { parse, parseExpression } from '@babel/parser';
 import { discoverConfig } from 'nordbeam-locale/internal/migrate';
 import { createPlan } from 'nordbeam-locale/internal/migrate';
+import { revisionsMapper } from './codemod-positions.js';
+import { unboundTranslatorSkips } from './codemod-unbound.js';
 import type { FilePlan } from 'nordbeam-locale/internal/migrate';
 import { FormatJsSource, formatJsProjectMessages, removeUnusedDescriptors } from './codemod-formatjs.js';
 import type { FormatJsImportedMessages } from './codemod-formatjs.js';
@@ -759,8 +761,16 @@ function factoryPattern(factories: string | readonly string[]): string {
   return values.map(item => item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
 }
 
-function namespaceArgumentInfo(argument: string | undefined): { namespace?: string; dynamic?: boolean } {
+function namespaceArgumentInfo(argument: string | undefined, arrays = false): { namespace?: string; dynamic?: boolean } {
   if (!argument) return {};
+  // i18next's `useTranslation(['chat', 'common'])`: `t` reads the first namespace, and
+  // `common:key` or `{ ns: 'common' }` the others. An empty list is the default namespace.
+  const list = arrays ? /^\s*\[([^\]]*)\]/.exec(argument) : undefined;
+  if (list) {
+    const items = list[1]!.split(',').map(item => item.trim()).filter(Boolean);
+    const names = items.map(item => staticString(item));
+    return names.every(name => name !== undefined && name !== '') ? (names.length ? { namespace: names[0]! } : {}) : { dynamic: true };
+  }
   const direct = staticString(argument) ?? /^\s*(['"])([^'"\\]*)\1/.exec(argument)?.[2];
   if (direct) return { namespace: direct };
   const namespace = /\bnamespace\s*:\s*/.exec(argument);
@@ -787,7 +797,7 @@ function destructuredBindings(text: string, factories: string | readonly string[
       diagnostics.push({ callee: property, reason: 'translation factory call is unclosed; repair the source before migration', offset: match.index });
       continue;
     }
-    const argument = text.slice(open + 1, close), namespaceInfo = namespaceArgumentInfo(argument);
+    const argument = text.slice(open + 1, close), namespaceInfo = namespaceArgumentInfo(argument, includeKeyPrefix);
     const dynamicFactoryOptions = strictFactoryOptions && argument.trim() && argument.trim() !== '{}';
     const keyPrefixMatch = includeKeyPrefix ? /\bkeyPrefix\s*:\s*([^,}]+)/.exec(argument) : undefined;
     const keyPrefix = keyPrefixMatch ? staticString(keyPrefixMatch[1]!) : undefined;
@@ -991,7 +1001,7 @@ function actionableSkip(item: CodemodSkip): CodemodSkip {
     action = 'Add the message to the base catalog or correct the key to an existing generated ID, then re-run the codemod.';
   } else if (/source-to-id mapping/.test(reason)) {
     code = 'MESSAGE_ID_UNRESOLVED';
-    action = 'Add the message to the base catalog or provide an unambiguous source-to-ID map, then re-run the codemod.';
+    action = 'Add the message to the base catalog, or pass --message-id-map with a JSON object from each source text to its message ID, then re-run the codemod.';
   } else if (/did not parse|unclosed/.test(reason)) {
     code = 'SOURCE_PARSE_ERROR';
     action = 'Repair the source syntax first; the codemod intentionally made no changes at this boundary.';
@@ -2480,6 +2490,26 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   // no equivalent on the generated message object. Report these explicitly
   // instead of silently leaving a call that would reference a removed helper
   // (Next's t.raw/t.has/t.markup are the common example).
+  // next-intl's t.rich(key, values) renders tags through callbacks, as rich() does with the
+  // same values: `rich(m.ns.key, values)`. Returns false when the call was not rewritten.
+  const nextIntlRich = (binding: Binding, start: number, written: string): boolean => {
+    const report = (reason: string, code?: string): boolean => { skipped.push({ callee: `${binding.callee}.rich`, reason, offset: start, ...(code ? { code } : {}) }); return true; };
+    if (written.includes('?.')) return false;
+    if (binding.ambiguous) return report('translation binding has multiple namespace or scope declarations; qualify the helper before migration');
+    if (!customBinding(binding) && !bindingScopeAvailable(text, binding.callee, start, mask, bindingScopeCache)) return report('translation binding is outside the lexical scope of its factory declaration; rewrite this call manually');
+    if (!customBinding(binding) && (parsedShadowedStarts?.has(start) || shadowedByParameter(text, binding.callee, start, mask) || shadowedByLocal(text, binding.callee, start, mask))) return report('translation binding is shadowed by a function parameter or local scope binding; rewrite this call manually');
+    if (binding.namespaceDynamic) return report('translation namespace or keyPrefix is dynamic; provide a static namespace or migrate this boundary manually');
+    const open = start + written.lastIndexOf('('), close = parsedCallEnds?.get(start) !== undefined ? parsedCallEnds.get(start)! - 1 : closingParenthesis(text, open, mask);
+    if (close === undefined) return report('unclosed call');
+    const args = argumentsOf(text, open, close, mask), key = staticString(args[0] ?? '');
+    if (key === undefined) return report(args[0]?.trim().startsWith('`') && args[0].includes('${') ? 'message key is a dynamic template literal' : 'message key is dynamic');
+    if (args.length > 2) return report('call has unsupported extra arguments');
+    const id = renamed(binding.namespace ? `${binding.namespace}.${key}` : key);
+    if (allowedIds && !allowedIds.has(id)) return report(`message id ${JSON.stringify(id)} is absent from generated message types`, 'UNKNOWN_MESSAGE_ID');
+    const occupiedKey = `${start}:${close}`;
+    if (!occupied.has(occupiedKey)) { occupied.add(occupiedKey); replacements.push({ start, end: close + 1, text: `rich(${messageAccess(root, id)}, ${args[1]?.trim() || '{}'})`, rich: true }); }
+    return true;
+  };
   for (const { activeFormat, bindings: activeBindings } of bindingSets) {
     const allowedMembers = new Set<string>();
     for (const binding of activeBindings) {
@@ -2488,10 +2518,14 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       for (const match of text.matchAll(new RegExp(`\\b${escaped}\\s*(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)\\s*\\(`, 'g'))) {
         if (parsedCallStarts && !parsedCallStarts.has(match.index!)) continue;
         if (allowedMembers.has(match[1]!)) continue;
+        if (activeFormat === 'next-intl' && match[1] === 'rich' && nextIntlRich(binding, match.index!, match[0])) continue;
         skipped.push({ callee: `${binding.callee}.${match[1]}`, reason: `${activeFormat ?? 'custom'} translation helper member is not supported by the generated messages object; migrate this member manually`, offset: match.index });
       }
     }
   }
+  // A translator from a parameter, props or a local is no binding the codemod rewrites.
+  // Its calls were silent unless the file also bound a hook; report each one.
+  if (scriptLike) skipped.push(...unboundTranslatorSkips(text, formats, replacements, skipped));
   if (options.filename?.endsWith('.html') && (normalized === 'transloco' || normalized === 'ngx-translate')) {
     const pipe = normalized === 'transloco' ? 'transloco' : 'translate';
     const pattern = new RegExp(`(['"])([^'"\\n]+)\\1\\s*\\|\\s*${pipe}\\b`, 'g');
@@ -2823,7 +2857,7 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
     files.push(file);
     let code = source, replacements = 0, typeImportsMoved = 0;
     let result: CodemodSourceResult;
-    const revisions = new Set<string>([source]);
+    const revisions = new Set<string>([source]), history = [source];
     // The single-source API deliberately lowers an innermost call first so
     // every replacement uses offsets from one revision. At project level we
     // can safely reparse the exact output and converge in one reviewed run.
@@ -2834,9 +2868,11 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
       if (result.code === code) break;
       if (revisions.has(result.code)) throw new Error(`Codemod did not converge for ${file}; no files were written.`);
       revisions.add(result.code);
+      history.push(result.code);
       code = result.code;
     }
-    const bindingSkips: CodemodSkip[] = [];
+    const converged = code;
+    const bindingSkips: CodemodSkip[] = [], fileWarnings: CodemodSkip[] = [];
     // Without messagesImport the codemod cannot add the generated binding, so
     // a rewrite that introduces an unbound `m` would compile-fail while still
     // reporting success. Leave such a file unchanged and say why; preview and
@@ -2848,7 +2884,7 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
       if (before && after && after.unbound > before.unbound) {
         const binding = `server: const { messages: ${messagesObject} } = await loadLocale(locale); client: const ${messagesObject} = i18n.useMessages()`;
         if (options.requireMessagesBinding === 'warn') {
-          warnings.push(sourcePositioner(code)({ file, callee: messagesObject, reason: `rewritten calls reference ${messagesObject}, which this file does not bind yet`, code: 'MISSING_MESSAGES_BINDING', action: `Bind ${messagesObject} in this file (${binding}), or re-run with --messages-import <specifier>.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
+          fileWarnings.push(sourcePositioner(code)({ file, callee: messagesObject, reason: `rewritten calls reference ${messagesObject}, which this file does not bind yet`, code: 'MISSING_MESSAGES_BINDING', action: `Bind ${messagesObject} in this file (${binding}), or re-run with --messages-import <specifier>.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
         } else {
           bindingSkips.push(sourcePositioner(code)({ file, callee: messagesObject, reason: `rewritten calls would reference ${messagesObject} without a binding in this file; ${replacements} call(s) left unchanged`, code: 'MISSING_MESSAGES_BINDING', action: `Pass --messages-import <specifier>, or bind ${messagesObject} first (${binding}), then re-run the codemod.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
           code = source; replacements = 0; typeImportsMoved = 0;
@@ -2859,12 +2895,24 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
       bindingSkips.push({ file, callee: '(file)', reason: 'file is read-only; its rewrites were not applied', code: 'READ_ONLY_FILE', action: 'Make the file writable (chmod u+w) or migrate its calls manually, then re-run the codemod.' });
       code = source; replacements = 0; typeImportsMoved = 0;
     }
-    const allSkips = [...result.skipped, ...bindingSkips];
+    // Positions name the file as this command leaves it: rewritten after --write, and
+    // otherwise as it was. The last pass reported against the converged revision.
+    const target = options.write && code !== source ? code : source, positionTarget = sourcePositioner(target);
+    let toSource: ((offset: number) => number) | undefined;
+    const place = (from: string) => (item: CodemodSkip): CodemodSkip => {
+      if (typeof item.offset !== 'number') return item;
+      if (from === target) return positionTarget(item);
+      toSource ??= revisionsMapper(history);
+      const { line: _line, column: _column, ...rest } = item;
+      return positionTarget({ ...rest, offset: toSource(item.offset) });
+    };
+    warnings.push(...fileWarnings.map(place(converged)));
+    const allSkips = [...result.skipped, ...bindingSkips].map(place(converged));
     result = { ...result, code, replacements, typeImportsMoved, skipped: allSkips, compatibility: compatibilityPlan(replacements, allSkips,
       allSkips.length ? [file] : [], [{ file, directRewrites: replacements, fallbackRequired: allSkips.length > 0, fallbackCalls: allSkips }]) };
     const normalized = normalizeFormat(options.format);
     const residueFormats = normalized === 'auto' ? concreteFormats : [normalized as Exclude<CodemodFormat, 'auto'>];
-    const residue = residueFormats.flatMap(activeFormat => incumbentImportDiagnostics(result.code, activeFormat));
+    const residue = residueFormats.flatMap(activeFormat => incumbentImportDiagnostics(result.code, activeFormat)).map(place(result.code));
     const fileSkips = actionableSkips([...result.skipped, ...residue]);
     skipped.push(...fileSkips.map(item => ({ ...item, file })));
     // Import residue is an integration audit, not a legacy call fallback. It

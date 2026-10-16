@@ -587,7 +587,7 @@ Severity: warning.
 
 The message ID of a call could not be resolved from the source.
 
-**Fix:** Pass a literal key, or map the source file with --message-id-map.
+**Fix:** Pass a literal key, or give --message-id-map a JSON object from each source text to its message ID ({"Hello {name}": "home.greeting"}); Lingui 4 and 5 projects that use source text as IDs need one.
 
 ### MESSAGE_NOT_FOUND
 
@@ -1172,6 +1172,14 @@ Severity: error.
 A translation adds a select branch that the base message does not define.
 
 **Fix:** Remove the branch, or add it to the base message if every locale needs it.
+
+### UNBOUND_TRANSLATOR
+
+Severity: warning.
+
+A translation call gets its translator from a function parameter, component props (an HOC such as withTranslation or injectIntl) or a local value, not a hook the codemod binds, so it was not rewritten.
+
+**Fix:** Pass the messages object or the message functions to that code instead of the translator, or bind the translation hook in the component, then run codemod again. Name a wrapper hook with --custom-call.
 
 ### UNSUPPORTED_NAMESPACE_SYNTAX
 

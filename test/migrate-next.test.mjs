@@ -310,13 +310,20 @@ export function StillLegacy() {
   assert.doesNotMatch(mixedScopes.code, /useTranslations/);
 });
 
-test('Next migration reports rich helpers and does not duplicate an existing locale binding', () => {
+test('Next migration lowers t.rich to rich(), reports other helpers, and does not duplicate an existing locale binding', () => {
   const rich = migrateNextSource(`import { getTranslations } from 'next-intl/server';
 export default async function Page({ params }) { const t = await getTranslations(); return t.rich('title', { strong }); }`, {
     root: '/project', file: '/project/app/[locale]/page.tsx', framework: 'next-intl',
   });
-  assert.equal(rich.replacements, 0);
-  assert.ok(rich.skipped.some(item => /t\.rich/.test(item.reason)));
+  assert.equal(rich.replacements, 1);
+  assert.match(rich.code, /import \{ rich \} from ['"]@nordbeam\/locale\/react\/rich['"];/);
+  assert.match(rich.code, /return rich\(m\.title, \{ strong \}\);/);
+  const markup = migrateNextSource(`import { getTranslations } from 'next-intl/server';
+export default async function Page({ params }) { const t = await getTranslations(); return t.markup('title', { b: c => c }); }`, {
+    root: '/project', file: '/project/app/[locale]/page.tsx', framework: 'next-intl',
+  });
+  assert.equal(markup.replacements, 0);
+  assert.ok(markup.skipped.some(item => /t\.markup/.test(item.reason)));
 
   const existing = migrateNextSource(`import { getTranslations } from 'next-intl/server';
 export default async function Page({ params }) { const { locale } = params; const t = await getTranslations(); return t('title'); }`, {
