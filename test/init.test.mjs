@@ -8,6 +8,7 @@ import { createServer } from 'vite';
 import { nordbeamLocale } from '../dist/vite.js';
 import { temporary, waitFor } from './helpers.mjs';
 
+const { version } = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
 const cli = (root, ...args) => spawnSync(process.execPath, [resolve('dist/cli.js'), ...args], {cwd: root, encoding: 'utf8'});
 const ok = result => assert.equal(result.status, 0, result.stdout + result.stderr);
 
@@ -155,10 +156,26 @@ test('init adds the generated directory to lint and format ignore files, and nam
   // A line that already covers the directory is left alone.
   assert.equal(await readFile(join(root, '.prettierignore'), 'utf8'), 'coverage/\nsrc/i18n/\n');
   assert.equal(await readFile(join(root, '.oxfmtrc.json'), 'utf8'), JSON.stringify({ printWidth: 100, ignorePatterns: ['dist/**', 'src/i18n/**'] }, null, 4) + '\n');
-  assert.deepEqual(report.notes, ['add { ignores: ["src/i18n/"] } to eslint.config.js; generated code is not written to your lint rules.']);
+  assert.deepEqual(report.notes, [
+    `install the tooling that generates the messages: npm install --save-dev nordbeam-locale@${version}`,
+    'add { ignores: ["src/i18n/"] } to eslint.config.js; generated code is not written to your lint rules.',
+  ]);
   // A second init has nothing to add.
   await rm(join(root, 'nordbeam-locale.config.json'));
   assert.equal(JSON.parse(cli(root, 'init', '--json').stdout).updated, undefined);
+});
+
+test('init says which packages to install: the tooling, and the runtime that a framework scaffold imports', async t => {
+  const root = await temporary(t);
+  await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { react: '19.0.0', vite: '7.0.0' } }) + '\n');
+  const report = JSON.parse(cli(root, 'init', '--framework', 'vite-react', '--json').stdout);
+  assert.deepEqual(report.notes, [
+    `install the runtime that the vite-react files import: npm install @nordbeam/locale@${version}`,
+    `install the tooling that generates the messages: npm install --save-dev nordbeam-locale@${version}`,
+  ]);
+  const declared = await temporary(t);
+  await writeFile(join(declared, 'package.json'), JSON.stringify({ dependencies: { '@nordbeam/locale': version, react: '19.0.0', vite: '7.0.0' }, devDependencies: { 'nordbeam-locale': version } }) + '\n');
+  assert.equal(JSON.parse(cli(declared, 'init', '--framework', 'vite-react', '--json').stdout).notes, undefined);
 });
 
 test('init recognizes the legacy nordbeam-i18n lifecycle alias without duplicating generation', async t => {

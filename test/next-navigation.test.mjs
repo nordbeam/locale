@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createNavigation, createNextNavigation } from '../dist/next-navigation.js';
-import { NextNavigationClientLink } from '../dist/next-navigation-client.js';
+import { createNavigation, createNextNavigation } from '../packages/locale/dist/next-navigation.js';
+import { NextNavigationClientLink } from '../packages/locale/dist/next-navigation-client.js';
 import { compileProject } from '../dist/compiler.js';
 import { compiled } from './helpers.mjs';
 
@@ -56,7 +56,7 @@ test('Link is callable outside a render and hands routing to the client componen
   assert.equal(element.type, NextNavigationClientLink);
   assert.equal(element.props.routing, routing);
   assert.equal(element.props.locale, 'fr');
-  assert.match(await readFile(resolve('dist/next-navigation-client.js'), 'utf8'), /^'use client';/);
+  assert.match(await readFile(resolve('packages/locale/dist/next-navigation-client.js'), 'utf8'), /^'use client';/);
 });
 
 test('redirect localizes route hrefs according to each prefix mode', () => {

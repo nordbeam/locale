@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { catalogSchema, configSchema } from '../dist/index.js';
+import { catalogSchema, configSchema } from '../dist/schema.js';
 import { validateConfig } from '../dist/config.js';
 import { writeEditorSchemas } from '../dist/cli-tools.js';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';

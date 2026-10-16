@@ -22,7 +22,7 @@ runtime users do not install the migration parsers:
 npm install --save-dev @nordbeam/locale-migrate
 ```
 
-Install the same version as `@nordbeam/locale`. `codemod`, `migrate` and `migrate-project` load the package
+Install the same version as `nordbeam-locale`. `codemod`, `migrate` and `migrate-project` load the package
 on first use; without it they stop with `MIGRATE_PACKAGE_MISSING` and print this command.
 
 ## Migrating an existing catalog

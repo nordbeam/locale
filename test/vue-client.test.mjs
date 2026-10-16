@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp, effectScope } from 'vue';
-import { createVueI18n } from '../dist/vue.js';
+import { createVueI18n } from '../packages/locale/dist/vue.js';
 import { compiled } from './helpers.mjs';
 
 const catalogs = {

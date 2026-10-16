@@ -2,7 +2,7 @@
 name: nordbeam-locale-migrate
 description: Migrate an existing app from another i18n library to Nordbeam Locale (@nordbeam/locale) with @nordbeam/locale-migrate and the nordbeam-locale CLI (migrate-project, migrate, codemod, apply-plan). Handles sources, catalogs and call sites from i18next, react-i18next, next-i18next, next-intl, FormatJS and react-intl, Lingui, vue-i18n and Nuxt i18n, svelte-i18n, typesafe-i18n, Tolgee, next-international, Transloco, ngx-translate, plus catalog files in PO, POT, MO, Jed JSON, ARB, YAML, Android XML and Apple strings or xcstrings. Use when the user wants to switch to, move to, replace their current i18n library with, or convert translations into Nordbeam Locale, or asks how to move off one of these libraries. Gives the safe protocol (preview, review, apply, verify), the per-library gaps, and how to resolve every skipped construct. Not for everyday catalog edits in a project already on Nordbeam Locale (use nordbeam-locale), and not for choosing or starting an i18n setup from scratch.
 license: Apache-2.0
-compatibility: Needs Node 22.12 or newer, @nordbeam/locale and @nordbeam/locale-migrate installed at exactly the same version, and a git working tree to review the diff.
+compatibility: Needs Node 22.12 or newer, nordbeam-locale, @nordbeam/locale-migrate and (for a framework adapter) @nordbeam/locale installed at exactly the same version, and a git working tree to review the diff.
 ---
 
 # Migrate to Nordbeam Locale
@@ -16,11 +16,11 @@ Run commands from the project root. `--json` prints one JSON document; prefer it
 1. Find the source library and its catalogs in `package.json` and the tree. Pick the matching reference below and read it now: the per-library gaps decide how you prepare the catalogs.
 2. Choose the target framework: `next`, `vite-react`, `vue`, `svelte` or `solid`. Angular (Transloco, ngx-translate) has codemods only and no Nordbeam runtime adapter: stop and tell the user before changing anything. Remix, Nuxt and other frameworks are not scaffolded; see the reference. TanStack Start is a runtime target but not a migration scaffold: omit `--framework` to migrate catalogs and calls, then wire the runtime by hand with the `tanstack-start` reference of the nordbeam-locale skill.
 3. Require a clean git tree (or ask the user to commit) so the whole migration is one reviewable diff. Work on a branch.
-4. Install both packages at the same version; a mismatch stops every migration command (`MIGRATE_PACKAGE_VERSION`, missing package is `MIGRATE_PACKAGE_MISSING` with the exact install command in the error):
+4. Install the packages at the same version; a mismatch stops every migration command (`MIGRATE_PACKAGE_VERSION`, missing package is `MIGRATE_PACKAGE_MISSING` with the exact install command in the error):
 
    ```sh
    npm install @nordbeam/locale
-   npm install --save-dev @nordbeam/locale-migrate
+   npm install --save-dev nordbeam-locale @nordbeam/locale-migrate
    ```
 
 5. `npx nordbeam-locale capabilities --json` lists the accepted `--format` values under `formats.catalogs` and `formats.sourceCodemods`. Do not guess a name. XLIFF is not a supported format; convert it to PO or JSON with a tool first.

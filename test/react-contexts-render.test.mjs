@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createElement as h, act, memo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
-import { createClientI18n } from '../dist/react.js';
+import { createClientI18n } from '../packages/locale/dist/react.js';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const loaded = locale => wait(10).then(() => ({ locale, messages: { hello: `hello ${locale}` } }));

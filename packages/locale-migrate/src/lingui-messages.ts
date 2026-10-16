@@ -1,5 +1,5 @@
-import { parseIcuMessage } from '@nordbeam/locale/internal/migrate';
-import type { IcuMessageElement } from '@nordbeam/locale/internal/migrate';
+import { parseIcuMessage } from 'nordbeam-locale/internal/migrate';
+import type { IcuMessageElement } from 'nordbeam-locale/internal/migrate';
 
 /**
  * Lingui 3 catalogs hold ICU as messageformat-parser reads it, which is not quite what

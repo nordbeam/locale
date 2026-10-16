@@ -1,4 +1,4 @@
-import type { Diagnostic } from '@nordbeam/locale/internal/migrate';
+import type { Diagnostic } from 'nordbeam-locale/internal/migrate';
 
 /** A warning about many messages at once: `count` of them, every ID in `messageIds`. */
 export type GroupedDiagnostic = Diagnostic & { readonly count: number; readonly messageIds: readonly string[] };

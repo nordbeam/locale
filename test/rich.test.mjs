@@ -86,7 +86,7 @@ test('generated rich types and React helper infer required slots, values and sel
   await symlink(resolve('node_modules'),join(project.dir,'node_modules'),'dir');
   await writeFile(join(project.dir,'consumer.ts'),`
 import { selectMessages } from './index.js';
-import {rich} from ${JSON.stringify(resolve('dist/react.js'))};
+import {rich} from ${JSON.stringify(resolve('packages/locale/dist/react.js'))};
 import {createElement as h} from 'react';
 const {messages:m}=await selectMessages('rich')('fr');
 type Node={tag:string;children:Array<string|Node>};

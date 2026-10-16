@@ -6,10 +6,11 @@ Package entry: `@nordbeam/locale/tanstack-start` (no Node or server-only imports
 
 ```sh
 npm install @nordbeam/locale @tanstack/react-start @tanstack/react-router
+npm install --save-dev nordbeam-locale
 npx nordbeam-locale init --framework tanstack-start
 ```
 
-Init writes, when missing: `src/i18n/routing.ts`, `src/i18n/tanstack.ts`, `src/start.ts`, `src/router.tsx`, `src/routes/__root.tsx`, and `vite.config.ts` only when the Vite plugins it needs are declared. In a verified run with just `@tanstack/react-start` and `vite` declared it printed a note instead of a Vite config: install `@vitejs/plugin-react`, then put `nordbeamLocale()` from `@nordbeam/locale/vite`, `tanstackStart()` from `@tanstack/react-start/plugin/vite` and `viteReact()` in the plugins. Init never edits an existing file; it prints what to add for each one you already have.
+Init writes, when missing: `src/i18n/routing.ts`, `src/i18n/tanstack.ts`, `src/start.ts`, `src/router.tsx`, `src/routes/__root.tsx`, and `vite.config.ts` only when the Vite plugins it needs are declared. In a verified run with just `@tanstack/react-start` and `vite` declared it printed a note instead of a Vite config: install `@vitejs/plugin-react`, then put `nordbeamLocale()` from `nordbeam-locale/vite`, `tanstackStart()` from `@tanstack/react-start/plugin/vite` and `viteReact()` in the plugins. Init never edits an existing file; it prints what to add for each one you already have.
 
 The pieces, as scaffolded:
 

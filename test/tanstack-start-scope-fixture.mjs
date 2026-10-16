@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { JSDOM } from 'jsdom';
 import { Outlet, createMemoryHistory, createRootRouteWithContext, createRoute, createRouter } from '@tanstack/react-router';
-import { createTanStackStartI18n, defineRouting } from '../dist/tanstack-start.js';
+import { createTanStackStartI18n, defineRouting } from '../packages/locale/dist/tanstack-start.js';
 
 const assetsKey = Symbol.for('nordbeam-locale.catalog-assets');
 const full = {

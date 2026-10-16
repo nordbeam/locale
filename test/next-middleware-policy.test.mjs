@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NextRequest } from 'next/server.js';
-import { createNextMiddleware } from '../dist/next-middleware.js';
+import { createNextMiddleware } from '../packages/locale/dist/next-middleware.js';
 
 const request = (path, init = {}) => new NextRequest(`http://localhost${path}`, init);
 const target = response => response.headers.get('location') ?? response.headers.get('x-middleware-rewrite');

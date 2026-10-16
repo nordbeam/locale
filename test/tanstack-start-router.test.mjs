@@ -10,7 +10,7 @@ import {
   createRoute,
   createRouter,
 } from '@tanstack/react-router';
-import { createTanStackStartI18n, defineRouting } from '../dist/tanstack-start.js';
+import { createTanStackStartI18n, defineRouting } from '../packages/locale/dist/tanstack-start.js';
 
 const catalogs = {
   en: { title: () => 'Welcome', about: () => 'About' },

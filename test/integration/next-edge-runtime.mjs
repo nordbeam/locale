@@ -104,7 +104,7 @@ function asIsolateCatalog(source, locale) {
 
 async function runIsolate() {
   const read = path => readFile(join(repository, path), 'utf8');
-  const runtimeSource = (await read('dist/next-runtime.js')).replace(/\bexport\s+/g, '');
+  const runtimeSource = (await read('packages/locale/dist/next-runtime.js')).replace(/\bexport\s+/g, '');
   const scopePath = 'examples/next/src/i18n/scopes/route/index.js';
   let scopeSource = await read(scopePath);
   // The generated scope uses native dynamic import. EdgeVM intentionally has no
@@ -198,7 +198,7 @@ async function runIsolate() {
     checks,
     concurrentRequests: concurrent.length,
     forbiddenInGenerated,
-    generatedFiles: ['dist/next-runtime.js', scopePath, ...localeSources.map(({ locale }) => `examples/next/src/i18n/scopes/route/internal/locales/${locale}.js`)],
+    generatedFiles: ['packages/locale/dist/next-runtime.js', scopePath, ...localeSources.map(({ locale }) => `examples/next/src/i18n/scopes/route/internal/locales/${locale}.js`)],
   };
 }
 

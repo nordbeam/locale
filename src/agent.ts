@@ -32,7 +32,7 @@ export interface AgentCommandCapability {
 
 export interface AgentCapabilities {
   protocolVersion: typeof agentProtocolVersion;
-  product: '@nordbeam/locale';
+  product: 'nordbeam-locale';
   executable: 'nordbeam-locale';
   locality: 'local-only';
   commands: AgentCommandCapability[];
@@ -90,7 +90,7 @@ const commands: AgentCommandCapability[] = [
 export function getAgentCapabilities(): AgentCapabilities {
   return {
     protocolVersion: agentProtocolVersion,
-    product: '@nordbeam/locale',
+    product: 'nordbeam-locale',
     executable: 'nordbeam-locale',
     locality: 'local-only',
     commands: commands.map(command => ({ ...command })),

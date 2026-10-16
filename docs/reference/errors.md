@@ -1,6 +1,6 @@
 # Error and diagnostic codes
 
-Every JSON `errors[].code`, `warnings[].code` and NDJSON diagnostic code emitted by `@nordbeam/locale` is listed here. Run `nordbeam-locale explain <CODE>` for the same entry in the terminal, or `explain <CODE> --json` for machine output. Check and doctor diagnostics also carry `fix` and `docs` fields.
+Every JSON `errors[].code`, `warnings[].code` and NDJSON diagnostic code emitted by `nordbeam-locale` is listed here. Run `nordbeam-locale explain <CODE>` for the same entry in the terminal, or `explain <CODE> --json` for machine output. Check and doctor diagnostics also carry `fix` and `docs` fields.
 
 ## Exit status
 
@@ -101,7 +101,7 @@ A migration command (codemod, migrate or migrate-project) needs @nordbeam/locale
 
 Severity: error. Exit status 1.
 
-The installed @nordbeam/locale-migrate version differs from the installed @nordbeam/locale version. The two must match exactly, so the command stopped before reading or writing.
+The installed @nordbeam/locale-migrate version differs from the installed nordbeam-locale version. The two must match exactly, so the command stopped before reading or writing.
 
 **Fix:** Install the matching version: npm install --save-dev @nordbeam/locale-migrate@<nordbeam-locale version>.
 

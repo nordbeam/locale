@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createComponent } from 'solid-js';
 import { renderToString } from 'solid-js/web';
-import { createSolidI18n } from '../dist/solid.js';
+import { createSolidI18n } from '../packages/locale/dist/solid.js';
 import { compiled } from './helpers.mjs';
 
 // Server rendering uses Solid's server build, the default `node` condition, so

@@ -12,6 +12,7 @@ import { temporary } from './helpers.mjs';
 const root = resolve(new URL('..', import.meta.url).pathname);
 const skillsRoot = join(root, 'skills');
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const runtimePackage = JSON.parse(readFileSync(join(root, 'packages/locale/package.json'), 'utf8'));
 const cli = (cwd, ...args) => spawnSync(process.execPath, [join(root, 'dist/cli.js'), ...args], { cwd, encoding: 'utf8' });
 const json = result => JSON.parse(result.stdout);
 
@@ -82,12 +83,12 @@ for (const name of skillNames) {
 
   test(`skill ${name} only names real package entries, commands and options`, () => {
     const dir = join(skillsRoot, name);
-    const exportsMap = Object.keys(rootPackage.exports).map(key => key === '.' ? rootPackage.name : `${rootPackage.name}/${key.slice(2)}`);
+    const entries = pkg => Object.keys(pkg.exports).map(key => key === '.' ? pkg.name : `${pkg.name}/${key.slice(2)}`);
     const migrateExports = ['codemods', 'project', 'next', 'react', 'frameworks', 'catalog'].map(key => `@nordbeam/locale-migrate/${key}`);
-    const known = new Set([...exportsMap, ...migrateExports, '@nordbeam/locale-migrate']);
+    const known = new Set([...entries(rootPackage), ...entries(runtimePackage), ...migrateExports, '@nordbeam/locale-migrate']);
     for (const file of files(dir).filter(item => item.endsWith('.md'))) {
       const text = readFileSync(join(dir, file), 'utf8');
-      for (const [, specifier] of text.matchAll(/['"`](@nordbeam\/locale(?:-migrate)?(?:\/[a-z/]+)?)['"`]/g)) {
+      for (const [, specifier] of text.matchAll(/['"`](@nordbeam\/locale(?:-migrate)?(?:\/[a-z/]+)?|nordbeam-locale\/[a-z/]+)['"`]/g)) {
         assert.ok(known.has(specifier), `${name}/${file} imports unknown entry ${specifier}`);
       }
       for (const block of codeBlocks(text)) {

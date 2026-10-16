@@ -1,4 +1,4 @@
-import { defineRouting } from '../../dist/next-routing.js';
+import { defineRouting } from '../../packages/locale/dist/next-routing.js';
 
 export const pathnames = {
   '/about': { de: '/ueber-uns', fr: '/a-propos' },

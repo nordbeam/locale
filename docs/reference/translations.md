@@ -1,9 +1,9 @@
-# PO translations — `@nordbeam/locale/translations`
+# PO translations — `nordbeam-locale/translations`
 
 This entry exports dependency-free PO transport helpers.
 
 ```ts
-import { exportPo, importPo } from '@nordbeam/locale/translations';
+import { exportPo, importPo } from 'nordbeam-locale/translations';
 ```
 
 - `TranslationOptions` and `ImportPoOptions` — locale and project inputs.
@@ -12,7 +12,7 @@ import { exportPo, importPo } from '@nordbeam/locale/translations';
 - `importPo(options)` — validate and merge reviewed translations.
 - `serializePo(options)` and `mergePo(options)` — pure in-memory PO
   serialization and merge helpers, also available from
-  `@nordbeam/locale/po`; they do not read or write files.
+  `nordbeam-locale/po`; they do not read or write files.
 
 With a configured [notes file](../GUIDE.md#notes-about-messages), `exportPo`
 writes each message's note as `#.` comments above its entry, and `serializePo`

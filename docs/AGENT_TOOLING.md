@@ -18,11 +18,11 @@ Exit status is stable and categorical: `0` success, `1` validation failure, `2` 
 
 Long checks, inspection, generation/watch, catalog migrations, project migrations, codemods, and plan application accept `--ndjson`. A version event is always first; operation progress, diagnostics, changes, and a final result follow. Human diagnostics stay off stdout.
 
-Codemods can write a source-bound plan with `--plan <new-file>`. The plan contains normalized operation data, an exact target allow-list, before/after SHA-256 state, replacement content, and a hash of the complete plan. `apply-plan --from <reviewed-plan>` preflights every target before staging any output and rejects stale, missing, unexpected, non-file, or root-mismatched targets. Node integrations use `@nordbeam/locale/agent/plans`; event and inspection APIs live under `@nordbeam/locale/agent/events` and `@nordbeam/locale/agent/inspect`, keeping Node filesystem APIs out of the browser runtime entry.
+Codemods can write a source-bound plan with `--plan <new-file>`. The plan contains normalized operation data, an exact target allow-list, before/after SHA-256 state, replacement content, and a hash of the complete plan. `apply-plan --from <reviewed-plan>` preflights every target before staging any output and rejects stale, missing, unexpected, non-file, or root-mismatched targets. Node integrations use `nordbeam-locale/agent/plans`; event and inspection APIs live under `nordbeam-locale/agent/events` and `nordbeam-locale/agent/inspect`, keeping Node filesystem APIs out of the browser runtime entry.
 
 Agent skills ship in the package so the instructions match the installed CLI: `nordbeam-locale skills install` and `init --agent` copy `nordbeam-locale` and `nordbeam-locale-migrate` into `.claude/skills/` and `.agents/skills/` without overwriting local edits, and the same skills install through the Claude Code plugin marketplace or `npx skills add nordbeam/locale`. See [agent](reference/agent.md#agent-skills) and the [skills README](../skills/README.md).
 
-`capabilities` and `agent-guide` do not discover or load project configuration. Their metadata is exported from `@nordbeam/locale/agent`, so wrappers cannot drift from the CLI. `nordbeam-locale mcp` serves the same operations to MCP clients over stdio; see [MCP](reference/mcp.md).
+`capabilities` and `agent-guide` do not discover or load project configuration. Their metadata is exported from `nordbeam-locale/agent`, so wrappers cannot drift from the CLI. `nordbeam-locale mcp` serves the same operations to MCP clients over stdio; see [MCP](reference/mcp.md).
 
 The safe local workflow is:
 

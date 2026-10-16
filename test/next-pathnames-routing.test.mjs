@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defineRouting, getPathname, isRouteHref, localize, toExternalPath, toInternalPath, toInternalPathAny } from '../dist/next-routing.js';
+import { defineRouting, getPathname, isRouteHref, localize, toExternalPath, toInternalPath, toInternalPathAny } from '../packages/locale/dist/next-routing.js';
 
 const routing = defineRouting({
   locales: ['en', 'de', 'fr'],

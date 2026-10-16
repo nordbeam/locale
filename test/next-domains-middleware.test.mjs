@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NextRequest } from 'next/server.js';
-import { createNextMiddleware } from '../dist/next-middleware.js';
+import { createNextMiddleware } from '../packages/locale/dist/next-middleware.js';
 import { domainRouting } from './next-domains-fixtures/routing.mjs';
 
 const request = (host, path, init = {}) => new NextRequest(`https://${host}${path}`, { ...init, headers: { host, ...init.headers } });

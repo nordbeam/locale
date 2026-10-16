@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { createElement as h } from 'react';
 import { renderToString } from 'react-dom/server';
 import { compileMessages, createMessageTestHelpers, messageIds, withMessages } from '../dist/testing.js';
-import { rich } from '../dist/react.js';
+import { rich } from '../packages/locale/dist/react.js';
 import { compiled } from './helpers.mjs';
 
 test('test helpers derive nested keys and render locale matrices', async () => {

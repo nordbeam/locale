@@ -1,4 +1,4 @@
-# Vite plugin — `@nordbeam/locale/vite`
+# Vite plugin — `nordbeam-locale/vite`
 
 The Vite adapter generates modules before imports resolve, watches catalog edits,
 and can infer local message selection in development and production. It also
@@ -7,7 +7,7 @@ when one of the files it was computed from changes, in `vite dev` and in watch
 builds.
 
 ```ts
-import { nordbeamLocale } from '@nordbeam/locale/vite';
+import { nordbeamLocale } from 'nordbeam-locale/vite';
 ```
 
 - `nordbeamLocale(options?)` — Vite plugin factory (also the default export).
@@ -19,7 +19,7 @@ import { nordbeamLocale } from '@nordbeam/locale/vite';
 
 The plugin is an ES module. In a package without `"type": "module"`, Vite
 bundles `vite.config.ts` and `vitest.config.ts` as CommonJS and `require()`s the
-plugin; every `@nordbeam/locale` entry has a `default` export condition for that,
+plugin; every entry of both packages has a `default` export condition for that,
 and Node 22.12 or newer loads the module.
 
 With `preloadManifest: true`, the client build emits `nordbeam-locale-preload.json`.

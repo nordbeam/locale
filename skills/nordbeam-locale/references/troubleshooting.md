@@ -6,11 +6,11 @@ Start with the code: `npx nordbeam-locale explain <CODE> --json` gives the cause
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `npx nordbeam-locale` runs a different version than the project expects | Without a local install, npx runs the `nordbeam-locale` package, which runs the CLI of the matching `@nordbeam/locale` release. Run `npm install @nordbeam/locale` so `npx` uses the project's version. |
-| `MIGRATE_PACKAGE_MISSING` or `MIGRATE_PACKAGE_VERSION` | Install `@nordbeam/locale-migrate` at exactly the same version as `@nordbeam/locale`; the error prints the install command. |
+| `npx nordbeam-locale` runs a different version than the project expects | Without a local install, npx downloads the latest `nordbeam-locale`. Run `npm install --save-dev nordbeam-locale@<the @nordbeam/locale version>` so `npx` uses the project's version. |
+| `MIGRATE_PACKAGE_MISSING` or `MIGRATE_PACKAGE_VERSION` | Install `@nordbeam/locale-migrate` at exactly the same version as `nordbeam-locale`; the error prints the install command. |
 | `FILE_NOT_FOUND` / `No catalogs directory at messages/` | The project is not initialised or `catalogs` points elsewhere. Run `init`, or set `"catalogs"` in `nordbeam-locale.config.json`. |
 | `CONFIG_EXISTS` from `init --catalogs ...` | Init never replaces a config. Edit the JSON file instead; plain `init` and `init --agent` work on an existing config. |
-| `init` printed `Vite: add nordbeamLocale() ...` and the plugin is missing | An existing `vite.config.*` is preserved. Add `nordbeamLocale()` from `@nordbeam/locale/vite` to `plugins` by hand. For Vue, Svelte and Solid, install the framework's Vite plugin before `init` or add `vue()` / `svelte()` / `solid()` yourself. |
+| `init` printed `Vite: add nordbeamLocale() ...` and the plugin is missing | An existing `vite.config.*` is preserved. Add `nordbeamLocale()` from `nordbeam-locale/vite` to `plugins` by hand. For Vue, Svelte and Solid, install the framework's Vite plugin before `init` or add `vue()` / `svelte()` / `solid()` yourself. |
 | `--json is available with nordbeam-locale check and other explicit...` | `--json` needs an explicit command. Use `generate --json`, not bare `nordbeam-locale --json`. |
 | `USAGE` with `Unknown option --x, did you mean --y?` | Read `suggestion` in the error, or run `help <command>`. |
 

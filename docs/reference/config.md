@@ -1,11 +1,11 @@
-# Configuration — `@nordbeam/locale/config`
+# Configuration — `nordbeam-locale/config`
 
 Use these helpers when embedding discovery or validation in local tooling.
 
 ```ts
 import {
   discoverConfig, readConfig, validateConfig, resolveKeyPolicy,
-} from '@nordbeam/locale/config';
+} from 'nordbeam-locale/config';
 ```
 
 - `configName` — `nordbeam-locale.config.json`.

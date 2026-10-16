@@ -62,14 +62,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Dry-run pack both packages and reject development-only files
+      - name: Dry-run pack the packages and reject development-only files
         run: |
-          npm pack --dry-run --json --ignore-scripts > core.json
+          npm pack --dry-run --json --ignore-scripts > tools.json
+          npm pack --dry-run --json --ignore-scripts --workspace packages/locale > runtime.json
           npm pack --dry-run --json --ignore-scripts --workspace packages/locale-migrate > migrate.json
           node -e "
             const fs = require('fs');
             const forbidden = /^(research|test|examples|editors|packages)\//;
-            for (const [label, file, entry] of [['@nordbeam/locale', 'core.json', 'dist/index.js'], ['@nordbeam/locale-migrate', 'migrate.json', 'dist/index.js']]) {
+            for (const [label, file, entry] of [['nordbeam-locale', 'tools.json', 'dist/cli.js'], ['@nordbeam/locale', 'runtime.json', 'dist/index.js'], ['@nordbeam/locale-migrate', 'migrate.json', 'dist/index.js']]) {
               const [report] = JSON.parse(fs.readFileSync(file, 'utf8'));
               const paths = report.files.map(item => item.path);
               const leaked = paths.filter(path => forbidden.test(path));

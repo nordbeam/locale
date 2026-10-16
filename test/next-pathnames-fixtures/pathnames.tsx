@@ -1,5 +1,5 @@
-import { createNextNavigation } from '../../dist/next-navigation.js';
-import { defineRouting } from '../../dist/next-routing.js';
+import { createNextNavigation } from '../../packages/locale/dist/next-navigation.js';
+import { defineRouting } from '../../packages/locale/dist/next-routing.js';
 
 const routing = defineRouting({
   locales: ['en', 'de'],

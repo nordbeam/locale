@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { checkProject, compareContract, compileProject, describeCatalog, describeMessageContract, locateDiagnostics, updateCatalogText } from '../dist/compiler.js';
-import { configSchema } from '../dist/index.js';
+import { configSchema } from '../dist/schema.js';
 import { resolveKeyPolicy, validateConfig } from '../dist/config.js';
 import { mergePo, serializePo } from '../dist/translations.js';
 

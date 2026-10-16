@@ -1,9 +1,9 @@
-# Agent protocol — `@nordbeam/locale/agent`
+# Agent protocol — `nordbeam-locale/agent`
 
 The agent entry describes the local CLI's machine-readable capabilities.
 
 ```ts
-import { getAgentCapabilities, getAgentGuide } from '@nordbeam/locale/agent';
+import { getAgentCapabilities, getAgentGuide } from 'nordbeam-locale/agent';
 ```
 
 - `agentProtocolVersion` — current protocol version.
@@ -50,7 +50,7 @@ nordbeam-locale init --agent
 - Local edits are never overwritten. Each skill directory holds a
   `.nordbeam-skill.json` record with the SHA-256 of every file the CLI wrote. A
   later install replaces a file only when it is still byte-identical to that
-  record (for example after upgrading `@nordbeam/locale`) and removes a file the
+  record (for example after upgrading `nordbeam-locale`) and removes a file the
   new version no longer ships only under the same condition. Any other differing
   file is `skipped` with a reason and exits 0. A skill directory that is a symbolic
   link, as `npx skills` creates, is skipped as a whole.
@@ -97,6 +97,16 @@ Additive:
 
 Changed:
 
+- The CLI ships in the `nordbeam-locale` package, apart from the
+  `@nordbeam/locale` runtime. `capabilities --json` reports
+  `product: "nordbeam-locale"` (it was `"@nordbeam/locale"`), and the skills
+  manifest records `package: "nordbeam-locale"`. The agent APIs are imported
+  from `nordbeam-locale/agent`, `/agent/plans`, `/agent/events` and
+  `/agent/inspect`.
+- `init` `notes` start with what to install: `npm install @nordbeam/locale@<version>`
+  when a framework scaffold imports the runtime and `package.json` does not list
+  it, and `npm install --save-dev nordbeam-locale@<version>` when it does not
+  list the tooling.
 - `init` writes `"prebuild": "nordbeam-locale --production"` (it was
   `nordbeam-locale`, which generated development output with argument guards
   before a production build).

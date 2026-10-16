@@ -53,7 +53,7 @@ export async function listBundledSkills(source = bundledSkillsDirectory()): Prom
   let entries;
   try { entries = await readdir(source, { withFileTypes: true }); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new CliError('FILE_NOT_FOUND', `Bundled skills not found at ${source}. Reinstall @nordbeam/locale.`, { path: source });
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new CliError('FILE_NOT_FOUND', `Bundled skills not found at ${source}. Reinstall nordbeam-locale.`, { path: source });
     throw error;
   }
   const names: string[] = [];
@@ -144,7 +144,7 @@ async function installOne(root: string, source: string, skill: string, target: S
     : created + updated + removed > 0 ? 'updated' : 'unchanged';
   if (skipped > 0 && entry.action === 'skipped') entry.reason = 'Every file already exists with local content.';
   if (!dryRun && Object.keys(next).length) {
-    const manifest: SkillManifest = { package: '@nordbeam/locale', version, skill, files: next };
+    const manifest: SkillManifest = { package: 'nordbeam-locale', version, skill, files: next };
     const text = JSON.stringify(manifest, null, 2) + '\n';
     const manifestPath = join(directory, skillManifestName);
     const current = await exists(manifestPath) === 'file' ? await readFile(manifestPath, 'utf8') : undefined;

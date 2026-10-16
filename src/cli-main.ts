@@ -592,7 +592,7 @@ async function main(): Promise<void> {
     if (values.json) jsonSuccess({ root: skillsRoot, ...relativePaths({ dryRun: result.dryRun, version: result.version, totals, skills: result.skills }, skillsRoot) });
     else {
       for (const entry of result.skills) printSkillEntry(entry, skillsRoot, result.dryRun);
-      console.log(`nordbeam-locale: skills ${result.dryRun ? 'preview' : 'installed'} for @nordbeam/locale ${result.version} — ${totals.created} created, ${totals.updated} updated, ${totals.unchanged} unchanged, ${totals.skipped} skipped${totals.removed ? `, ${totals.removed} removed` : ''}.`);
+      console.log(`nordbeam-locale: skills ${result.dryRun ? 'preview' : 'installed'} for nordbeam-locale ${result.version} — ${totals.created} created, ${totals.updated} updated, ${totals.unchanged} unchanged, ${totals.skipped} skipped${totals.removed ? `, ${totals.removed} removed` : ''}.`);
     }
     return;
   }
@@ -1039,7 +1039,7 @@ async function main(): Promise<void> {
     const module = './' + displayPath(resolve(result.project.outDir, 'index.js'));
     console.log(`\nFrom the project directory:\nimport { loadLocale } from ${JSON.stringify(module)};\nconst { messages: m } = await loadLocale(${JSON.stringify(options.baseLocale)});`);
     if (result.seeded) console.log("m.greeting({ name: 'Ada' });\nm.items({ count: 3 });\n\nThe starter text is English; replace it with your base language.");
-    console.log('\nVite: add nordbeamLocale() from "@nordbeam/locale/vite" to plugins. It reads nordbeam-locale.config.json at the Vite project root. For a custom config path, pass its options explicitly.');
+    console.log('\nVite: add nordbeamLocale() from "nordbeam-locale/vite" to plugins. It reads nordbeam-locale.config.json at the Vite project root. For a custom config path, pass its options explicitly.');
     console.log('Next.js: wrap next.config.mjs with withNordbeamLocale() from "@nordbeam/locale/next"; it generates before builds and watches catalogs during next dev.');
     if (result.framework === 'vite-react') console.log(`\nVite React scaffold: import { i18n } from ${JSON.stringify('./' + displayPath(resolve(result.project.outDir, 'client.js')))} and wrap the app with <i18n.Provider initialLocale="${options.baseLocale}">.`);
     for (const note of result.frameworkNotes ?? []) console.log(`\nNext: ${note}`);

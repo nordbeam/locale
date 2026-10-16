@@ -1,6 +1,6 @@
 # Solid (Vite)
 
-Package entries: `@nordbeam/locale/solid` (`createSolidI18n`), `@nordbeam/locale/vite`. Each instance owns its locale state: one per app, or one per request on the server.
+Package entries: `@nordbeam/locale/solid` (`createSolidI18n`), `nordbeam-locale/vite`. Each instance owns its locale state: one per app, or one per request on the server.
 
 ## Setup
 

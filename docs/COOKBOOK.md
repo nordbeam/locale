@@ -124,7 +124,7 @@ locale matrix exercises every catalog without putting a global locale in test
 state.
 
 ```ts
-import { createMessageTestHelpers } from '@nordbeam/locale/testing';
+import { createMessageTestHelpers } from 'nordbeam-locale/testing';
 import type { Locale, Messages } from '../src/i18n/index.js';
 import { loadLocale, locales } from '../src/i18n/index.js';
 
@@ -149,7 +149,7 @@ locale's generated module for the real text, `messageIds` when a test asserts
 IDs, and `withMessages` to replace a few messages:
 
 ```tsx
-import { compileMessages, messageIds, withMessages } from '@nordbeam/locale/testing';
+import { compileMessages, messageIds, withMessages } from 'nordbeam-locale/testing';
 import en from '../src/i18n/locales/en.js';
 
 const renderWith = (messages: typeof en) =>

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { register } from 'node:module';
 
 register(new URL('./next-middleware-hooks.mjs', import.meta.url));
-const { getLocale } = await import('../dist/next-server.js');
+const { getLocale } = await import('../packages/locale/dist/next-server.js');
 
 const withHeader = value => { globalThis.__nordbeamRequestHeaders = new Headers(value === undefined ? {} : { 'x-nordbeam-locale': value }); };
 const routing = { locales: ['en', 'fr-CA'] };

@@ -6,7 +6,7 @@ import {
   defineRouting,
   getLocale,
   type TanStackStartRouterContext,
-} from '../../dist/tanstack-start.js';
+} from '../../packages/locale/dist/tanstack-start.js';
 
 const routing = defineRouting({
   locales: ['en', 'de'],

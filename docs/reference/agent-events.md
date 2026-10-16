@@ -1,11 +1,11 @@
-# Agent events — `@nordbeam/locale/agent/events`
+# Agent events — `nordbeam-locale/agent/events`
 
 This entry re-exports the NDJSON event constructors and the stdout writer used
 by the CLI's machine-readable mode. Pass `--ndjson` to a command to receive its
 run as an event stream on stdout. Human logs and warnings stay on stderr.
 
 ```ts
-import { createStdoutNdjsonWriter, progressEvent } from '@nordbeam/locale/agent/events';
+import { createStdoutNdjsonWriter, progressEvent } from 'nordbeam-locale/agent/events';
 ```
 
 ## Stream rules
@@ -213,7 +213,7 @@ rather than throwing. The error also appears as a `diagnostic` event.
 ## Programmatic use
 
 ```ts
-import { createStdoutNdjsonWriter, diagnosticEventFrom, finalErrorFrom, finalEvent } from '@nordbeam/locale/agent/events';
+import { createStdoutNdjsonWriter, diagnosticEventFrom, finalErrorFrom, finalEvent } from 'nordbeam-locale/agent/events';
 
 const writer = createStdoutNdjsonWriter(process.stdout);
 const operationId = crypto.randomUUID();

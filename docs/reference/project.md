@@ -1,9 +1,10 @@
-# Project generation — `@nordbeam/locale/project`
+# Project generation — `nordbeam-locale/project`
 
-Project APIs read catalogs and own generated output on disk.
+Project APIs read catalogs and own generated output on disk. The package root,
+`nordbeam-locale`, exports the same API.
 
 ```ts
-import { generate, check, createGenerator } from '@nordbeam/locale/project';
+import { generate, check, createGenerator } from 'nordbeam-locale/project';
 ```
 
 - `GenerateOptions` and `GenerateResult` — generation input and result types.
@@ -15,7 +16,7 @@ import { generate, check, createGenerator } from '@nordbeam/locale/project';
 - `updateCatalogText(text, changes)` — pure formatting-preserving catalog text
   updates; it does not read or write files.
 
-Use `@nordbeam/locale/project` for file-backed generation and checks. Keep
+Use `nordbeam-locale/project` for file-backed generation and checks. Keep
 in-memory contract comparison and text updates in the compiler/project APIs so
 cloud workers do not need filesystem access.
 

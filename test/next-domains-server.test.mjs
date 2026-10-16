@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { register } from 'node:module';
 
 register(new URL('./next-middleware-hooks.mjs', import.meta.url));
-const { getDomain } = await import('../dist/next-server.js');
+const { getDomain } = await import('../packages/locale/dist/next-server.js');
 
 const withHeader = value => { globalThis.__nordbeamRequestHeaders = new Headers(value === undefined ? {} : { 'x-nordbeam-domain': value }); };
 const routing = { domains: [{ domain: 'Example.de' }, { domain: 'localhost:3001' }] };

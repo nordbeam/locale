@@ -67,7 +67,7 @@ The accepted keys are `baseLocale`, `catalogs`, `outDir`, `missing` (`"fallback"
 ## Tests
 
 ```ts
-import { createMessageTestHelpers } from '@nordbeam/locale/testing';
+import { createMessageTestHelpers } from 'nordbeam-locale/testing';
 import type { Messages } from './src/i18n/index.js';
 import { locales, loadLocale } from './src/i18n/index.js';
 

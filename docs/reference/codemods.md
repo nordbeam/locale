@@ -1,12 +1,12 @@
 # Source codemods — `@nordbeam/locale-migrate/codemods`
 
-Requires `@nordbeam/locale-migrate`, which ships the migration tools outside `@nordbeam/locale`:
+Requires `@nordbeam/locale-migrate`, which ships the migration tools outside `nordbeam-locale`:
 
 ```sh
 npm install --save-dev @nordbeam/locale-migrate
 ```
 
-Install the same version as `@nordbeam/locale`. The `nordbeam-locale` commands `codemod`, `migrate` and `migrate-project` load it on first use.
+Install the same version as `nordbeam-locale`. The `nordbeam-locale` commands `codemod`, `migrate` and `migrate-project` load it on first use.
 
 Codemods make conservative, reviewable source changes during migration.
 

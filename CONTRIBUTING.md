@@ -17,12 +17,13 @@ requests are all welcome. By participating you agree to follow the
 
 | Path | Contents |
 | --- | --- |
-| `src/` | `@nordbeam/locale`: compiler, generated runtime, CLI, framework adapters, agent tooling, MCP server |
+| `src/` | `nordbeam-locale`, the tooling: compiler, CLI, Vite and Next.js plugins, test helpers, agent tooling, MCP server |
+| `packages/locale/` | `@nordbeam/locale`, the runtime: locale store, framework adapters, `rich()`, inspector |
 | `packages/locale-migrate/` | `@nordbeam/locale-migrate`: catalog and source migrations, codemods |
-| `skills/` | Agent skills that ship with the package |
+| `skills/` | Agent skills that ship with `nordbeam-locale` |
 | `editors/vscode/` | The VS Code extension |
 | `examples/` | Vite, React SSR, and Next.js applications used by the integration checks |
-| `test/` | `node:test` suites, run against the built `dist/`; `test/integration/` holds the browser and framework checks, and `test/baselines/` earlier compiler builds that output is compared against |
+| `test/` | `node:test` suites, run against the built `dist/` and `packages/*/dist/`; `test/integration/` holds the browser and framework checks, and `test/baselines/` earlier compiler builds that output is compared against |
 | `docs/` | Guides and one reference page per public entry point |
 
 ## Development

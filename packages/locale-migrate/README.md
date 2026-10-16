@@ -1,8 +1,8 @@
 # @nordbeam/locale-migrate
 
-Migration tools for [`@nordbeam/locale`](../../README.md): convert catalogs and source calls from i18next, next-intl, FormatJS, Lingui, Tolgee and other libraries, and plan the Next, React and framework integration changes that go with them.
+Migration tools for [Nordbeam Locale](../../README.md): convert catalogs and source calls from i18next, next-intl, FormatJS, Lingui, Tolgee and other libraries, and plan the Next, React and framework integration changes that go with them.
 
-It is a separate package so that runtime users do not install the parsers the migration needs.
+It is a separate package so that projects which are not migrating do not install the parsers it needs.
 
 ## Install
 
@@ -10,7 +10,7 @@ It is a separate package so that runtime users do not install the parsers the mi
 npm install --save-dev @nordbeam/locale-migrate
 ```
 
-Install the same version as `@nordbeam/locale`. The package declares `@nordbeam/locale` as an exact peer dependency. The CLI refuses to run the migration commands when the two versions differ.
+Install the same version as `nordbeam-locale`, the CLI. The package declares `nordbeam-locale` as an exact peer dependency. The CLI refuses to run the migration commands when the two versions differ.
 
 ## CLI
 

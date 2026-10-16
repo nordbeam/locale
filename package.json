@@ -1,7 +1,7 @@
 {
-  "name": "@nordbeam/locale",
+  "name": "nordbeam-locale",
   "version": "0.4.0",
-  "description": "Nordbeam Locale: compile ICU translations into typed, tree-shakable JavaScript with lazy locale loading",
+  "description": "Nordbeam Locale: compile ICU translations into typed, tree-shakable JavaScript with lazy locale loading. The CLI, compiler, Vite and Next.js plugins, and test helpers; apps import the runtime from @nordbeam/locale.",
   "keywords": [
     "i18n",
     "internationalization",
@@ -14,11 +14,8 @@
     "typed",
     "tree-shaking",
     "vite",
-    "react",
-    "nextjs",
-    "vue",
-    "svelte",
-    "solid"
+    "cli",
+    "compiler"
   ],
   "license": "Apache-2.0",
   "author": "Nordbeam",
@@ -55,19 +52,19 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    },
-    "./compiler": {
-      "types": "./dist/compiler.d.ts",
-      "import": "./dist/compiler.js",
-      "default": "./dist/compiler.js"
+      "types": "./dist/project.d.ts",
+      "import": "./dist/project.js",
+      "default": "./dist/project.js"
     },
     "./project": {
       "types": "./dist/project.d.ts",
       "import": "./dist/project.js",
       "default": "./dist/project.js"
+    },
+    "./compiler": {
+      "types": "./dist/compiler.d.ts",
+      "import": "./dist/compiler.js",
+      "default": "./dist/compiler.js"
     },
     "./translations": {
       "types": "./dist/translations.d.ts",
@@ -84,65 +81,10 @@
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
-    "./react": {
-      "types": "./dist/react.d.ts",
-      "import": "./dist/react.js",
-      "default": "./dist/react.js"
-    },
-    "./react/rich": {
-      "types": "./dist/react-rich.d.ts",
-      "import": "./dist/react-rich.js",
-      "default": "./dist/react-rich.js"
-    },
-    "./vue": {
-      "types": "./dist/vue.d.ts",
-      "import": "./dist/vue.js",
-      "default": "./dist/vue.js"
-    },
-    "./svelte": {
-      "types": "./dist/svelte.d.ts",
-      "import": "./dist/svelte.js",
-      "default": "./dist/svelte.js"
-    },
-    "./solid": {
-      "types": "./dist/solid.d.ts",
-      "import": "./dist/solid.js",
-      "default": "./dist/solid.js"
-    },
     "./next": {
       "types": "./dist/next.d.ts",
       "import": "./dist/next.js",
       "default": "./dist/next.js"
-    },
-    "./next/runtime": {
-      "types": "./dist/next-runtime.d.ts",
-      "import": "./dist/next-runtime.js",
-      "default": "./dist/next-runtime.js"
-    },
-    "./next/middleware": {
-      "types": "./dist/next-middleware.d.ts",
-      "import": "./dist/next-middleware.js",
-      "default": "./dist/next-middleware.js"
-    },
-    "./next/navigation": {
-      "types": "./dist/next-navigation.d.ts",
-      "import": "./dist/next-navigation.js",
-      "default": "./dist/next-navigation.js"
-    },
-    "./next/routing": {
-      "types": "./dist/next-routing.d.ts",
-      "import": "./dist/next-routing.js",
-      "default": "./dist/next-routing.js"
-    },
-    "./next/server": {
-      "types": "./dist/next-server.d.ts",
-      "import": "./dist/next-server.js",
-      "default": "./dist/next-server.js"
-    },
-    "./tanstack-start": {
-      "types": "./dist/tanstack-start.d.ts",
-      "import": "./dist/tanstack-start.js",
-      "default": "./dist/tanstack-start.js"
     },
     "./schema": {
       "types": "./dist/schema.d.ts",
@@ -154,11 +96,6 @@
       "import": "./dist/config.js",
       "default": "./dist/config.js"
     },
-    "./internal/migrate": {
-      "types": "./dist/migrate-support.d.ts",
-      "import": "./dist/migrate-support.js",
-      "default": "./dist/migrate-support.js"
-    },
     "./pseudo": {
       "types": "./dist/pseudo.d.ts",
       "import": "./dist/pseudo.js",
@@ -168,11 +105,6 @@
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "default": "./dist/testing.js"
-    },
-    "./inspector": {
-      "types": "./dist/inspector.d.ts",
-      "import": "./dist/inspector.js",
-      "default": "./dist/inspector.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
@@ -198,50 +130,28 @@
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
       "default": "./dist/mcp.js"
-    }
+    },
+    "./internal/migrate": {
+      "types": "./dist/migrate-support.d.ts",
+      "import": "./dist/migrate-support.js",
+      "default": "./dist/migrate-support.js"
+    },
+    "./package.json": "./package.json"
   },
   "peerDependencies": {
-    "@tanstack/react-router": ">=1.168.0",
-    "@tanstack/react-start": ">=1.168.0",
-    "next": ">=13.0.0",
-    "react": "^18.0.0 || ^19.0.0",
-    "react-dom": "^18.0.0 || ^19.0.0",
-    "solid-js": "^1.8.0",
-    "svelte": "^4.0.0 || ^5.0.0",
-    "vite": "^6.0.0 || ^7.0.0 || ^8.0.0",
-    "vue": "^3.3.0"
+    "@nordbeam/locale": "0.4.0",
+    "vite": "^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "peerDependenciesMeta": {
-    "next": {
+    "@nordbeam/locale": {
       "optional": true
     },
     "vite": {
       "optional": true
-    },
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    },
-    "vue": {
-      "optional": true
-    },
-    "svelte": {
-      "optional": true
-    },
-    "solid-js": {
-      "optional": true
-    },
-    "@tanstack/react-router": {
-      "optional": true
-    },
-    "@tanstack/react-start": {
-      "optional": true
     }
   },
   "scripts": {
-    "build": "node -e \"for (const dir of ['dist', 'packages/locale-migrate/dist']) require('node:fs').rmSync(dir, { recursive: true, force: true })\" && tsc -p tsconfig.json && tsc -p packages/locale-migrate/tsconfig.json",
+    "build": "node -e \"for (const dir of ['dist', 'packages/locale/dist', 'packages/locale-migrate/dist']) require('node:fs').rmSync(dir, { recursive: true, force: true })\" && tsc -p tsconfig.json && tsc -p packages/locale/tsconfig.json && tsc -p packages/locale-migrate/tsconfig.json",
     "test": "npm run build && node --test --test-timeout=120000 test/*.test.mjs && node --conditions=browser --test test/solid-client.test.mjs test/tanstack-start-client.test.mjs",
     "check": "npm test && npm run example:build && npm run react:check && npm run next:check && npm run next:rtl:check && npm run next:advanced:check && npm run next:advanced:check:webpack && npm run tanstack-start:check",
     "prepack": "npm run build",
@@ -270,7 +180,7 @@
     "@lingui/message-utils": "6.9.1",
     "@lingui/react": "6.9.1",
     "@messageformat/core": "3.4.1",
-    "@nordbeam/locale": "file:.",
+    "@nordbeam/locale": "file:packages/locale",
     "@nordbeam/locale-migrate": "file:packages/locale-migrate",
     "@tanstack/react-router": "1.170.44",
     "@tanstack/react-start": "1.169.2",
@@ -294,6 +204,7 @@
     "next-i18next": "16.3.1",
     "next-international": "1.3.1",
     "next-intl": "4.14.9",
+    "nordbeam-locale": "file:.",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-i18next": "17.0.16",

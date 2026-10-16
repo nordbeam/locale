@@ -5,7 +5,7 @@ import { renderToString } from 'react-dom/server';
 import { hydrateRoot } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import { JSDOM } from 'jsdom';
-import { createClientI18n, createReactI18n, createSuspenseI18n, rich } from '../dist/react.js';
+import { createClientI18n, createReactI18n, createSuspenseI18n, rich } from '../packages/locale/dist/react.js';
 import { compiled } from './helpers.mjs';
 
 const loaded = locale => ({ locale, messages: { hello: ({ name }) => `${locale}: ${name}` } });

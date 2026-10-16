@@ -1,8 +1,8 @@
 import { lstat, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { checkProject, CompileError } from '@nordbeam/locale/internal/migrate';
-import type { Catalog, Diagnostic } from '@nordbeam/locale/internal/migrate';
+import { checkProject, CompileError } from 'nordbeam-locale/internal/migrate';
+import type { Catalog, Diagnostic } from 'nordbeam-locale/internal/migrate';
 import { decodeMigrationCatalog } from './catalog-formats.js';
 import { grouped } from './grouped-warnings.js';
 import type { MigrationFormat } from './catalog-formats.js';

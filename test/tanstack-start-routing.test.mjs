@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTanStackStartI18n, defineRouting, getLocaleDirection } from '../dist/tanstack-start.js';
+import { createTanStackStartI18n, defineRouting, getLocaleDirection } from '../packages/locale/dist/tanstack-start.js';
 
 const loadLocale = async locale => ({ locale, messages: {} });
 

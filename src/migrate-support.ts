@@ -1,6 +1,6 @@
 /**
  * Internal seam for @nordbeam/locale-migrate. It re-exports the core APIs that the migration
- * package builds on. This is not a stable public API: install @nordbeam/locale and
+ * package builds on. This is not a stable public API: install nordbeam-locale and
  * @nordbeam/locale-migrate at exactly the same version.
  */
 export { checkProject, compileProject, CompileError } from './compiler.js';

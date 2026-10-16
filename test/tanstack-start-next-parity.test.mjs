@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NextRequest } from 'next/server.js';
-import { createNextMiddleware } from '../dist/next-middleware.js';
-import { createLocaleMiddleware } from '../dist/tanstack-start.js';
+import { createNextMiddleware } from '../packages/locale/dist/next-middleware.js';
+import { createLocaleMiddleware } from '../packages/locale/dist/tanstack-start.js';
 
 // Both adapters call the shared request decision in src/locale-request.ts, so the same
 // routing and the same request must give the same redirect, locale, cookie and Link header.

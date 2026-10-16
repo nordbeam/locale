@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -13,6 +13,7 @@ import { temporary } from './helpers.mjs';
 const root = new URL('../', import.meta.url);
 const rootPackage = JSON.parse(await readFile(new URL('package.json', root), 'utf8'));
 const migratePackage = JSON.parse(await readFile(new URL('packages/locale-migrate/package.json', root), 'utf8'));
+const runtimePackage = JSON.parse(await readFile(new URL('packages/locale/package.json', root), 'utf8'));
 const cli = new URL('dist/cli.js', root).pathname;
 const parsers = ['@babel/parser', 'fast-xml-parser', 'gettext-parser', 'yaml'];
 
@@ -69,20 +70,97 @@ test('the installed migration package loads at the core version', async () => {
 test('the migration package version and peer dependency match the core package exactly', async () => {
   assert.equal(migratePackage.name, '@nordbeam/locale-migrate');
   assert.equal(migratePackage.version, rootPackage.version);
-  assert.equal(migratePackage.peerDependencies['@nordbeam/locale'], rootPackage.version);
+  assert.equal(migratePackage.peerDependencies['nordbeam-locale'], rootPackage.version);
   const index = await import(new URL('packages/locale-migrate/dist/index.js', root));
   assert.equal(index.version, rootPackage.version);
 });
 
-test('the npx package runs the core CLI at the core version', async () => {
-  const npxPackage = JSON.parse(await readFile(new URL('packages/nordbeam-locale/package.json', root), 'utf8'));
-  assert.equal(npxPackage.name, 'nordbeam-locale');
-  assert.equal(npxPackage.version, rootPackage.version);
-  assert.deepEqual(npxPackage.dependencies, { '@nordbeam/locale': rootPackage.version });
-  assert.deepEqual(npxPackage.bin, { 'nordbeam-locale': 'cli.js' });
-  const run = spawnSync(process.execPath, [new URL('packages/nordbeam-locale/cli.js', root).pathname, '--version'], { encoding: 'utf8' });
+test('the tooling package is the nordbeam-locale command, so npx runs it without a separate package', () => {
+  assert.equal(rootPackage.name, 'nordbeam-locale');
+  assert.equal(rootPackage.bin['nordbeam-locale'], 'dist/cli.js');
+  assert.equal(existsSync(new URL('packages/nordbeam-locale', root)), false);
+  const run = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   assert.equal(run.stdout.trim(), `nordbeam-locale ${rootPackage.version}`);
+});
+
+test('the runtime and the tooling are released together and name each other as exact optional peers', () => {
+  assert.equal(runtimePackage.name, '@nordbeam/locale');
+  assert.equal(runtimePackage.version, rootPackage.version);
+  assert.equal(runtimePackage.peerDependencies['nordbeam-locale'], rootPackage.version);
+  assert.equal(runtimePackage.peerDependenciesMeta['nordbeam-locale'].optional, true);
+  assert.equal(rootPackage.peerDependencies['@nordbeam/locale'], rootPackage.version);
+  assert.equal(rootPackage.peerDependenciesMeta['@nordbeam/locale'].optional, true);
+});
+
+const importSpecifiers = text => [...text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g)].map(match => match[1]);
+const packageName = specifier => specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
+
+test('the runtime has no dependencies and loads nothing from the tooling', async () => {
+  assert.equal(runtimePackage.dependencies, undefined);
+  assert.equal(runtimePackage.optionalDependencies, undefined);
+  const allowed = new Set(Object.keys(runtimePackage.peerDependencies));
+  const files = (await readdir(new URL('packages/locale/dist/', root), { recursive: true })).filter(file => file.endsWith('.js'));
+  assert.ok(files.includes('react.js') && files.includes('tanstack-start.js'));
+  for (const file of files) {
+    const text = await readFile(new URL(`packages/locale/dist/${file}`, root), 'utf8');
+    for (const specifier of importSpecifiers(text)) {
+      if (specifier.startsWith('./') || specifier.startsWith('node:')) continue;
+      assert.ok(allowed.has(packageName(specifier)), `packages/locale/dist/${file} imports ${specifier}`);
+      // The Next.js config wrapper is the one runtime module that loads the tooling, and only for next dev and next build.
+      if (packageName(specifier) === 'nordbeam-locale') assert.equal(file, 'next.js');
+    }
+  }
+});
+
+test('the tooling does not need the runtime installed', async t => {
+  // Load every tooling entry with @nordbeam/locale unresolvable. A text scan cannot tell
+  // an import from the import statements the CLI writes into new files.
+  const dir = await temporary(t);
+  const hooks = join(dir, 'hooks.mjs');
+  await writeFile(hooks, "export async function resolve(specifier, context, next) { if (/^@nordbeam\\/locale(?:\\/|$)/.test(specifier)) throw new Error(`loaded ${specifier} from ${context.parentURL}`); return next(specifier, context); }\n");
+  const entries = Object.values(rootPackage.exports).filter(conditions => typeof conditions !== 'string').map(conditions => new URL(conditions.import, root).href);
+  const script = `import { register } from 'node:module'; register(${JSON.stringify(pathToFileURL(hooks).href)}); for (const entry of ${JSON.stringify(entries)}) await import(entry);`;
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  // Loading does not run dynamic imports.
+  for (const file of (await readdir(new URL('dist/', root), { recursive: true })).filter(file => file.endsWith('.js'))) {
+    assert.doesNotMatch(await readFile(new URL(`dist/${file}`, root), 'utf8'), /\bimport\(\s*['"]@nordbeam\/locale['"/]/, `dist/${file}`);
+  }
+});
+
+test('the runtime and the tooling share one text noise filter', async () => {
+  // The inspector (runtime) and the hardcoded-text scan (tooling) must agree on what counts as text.
+  assert.equal(await readFile(new URL('packages/locale/src/text-noise.ts', root), 'utf8'), await readFile(new URL('src/text-noise.ts', root), 'utf8'));
+});
+
+test('next start loads the Next.js config without the tooling, and next build asks for it', async t => {
+  const project = await temporary(t);
+  const runtime = join(project, 'node_modules/@nordbeam/locale');
+  await mkdir(runtime, { recursive: true });
+  // A copy, not a link: a link would resolve nordbeam-locale from this repository.
+  await cp(new URL('packages/locale/dist', root), join(runtime, 'dist'), { recursive: true });
+  await writeFile(join(runtime, 'package.json'), JSON.stringify(runtimePackage));
+  await writeFile(join(project, 'package.json'), '{"type":"module"}');
+  const script = `import { withNordbeamLocale } from '@nordbeam/locale/next';
+const configure = withNordbeamLocale(async () => ({ reactStrictMode: true }));
+console.log(JSON.stringify(await configure('phase-production-server', {})));
+await configure('phase-production-build', {}).catch(error => console.log(error.message));`;
+  const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: project, encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  const [config, message] = run.stdout.trim().split('\n');
+  assert.deepEqual(JSON.parse(config), { reactStrictMode: true });
+  assert.equal(message, `Nordbeam Locale: generating messages for Next.js needs nordbeam-locale, which is not installed. Install it: npm install --save-dev nordbeam-locale@${rootPackage.version}`);
+});
+
+test('the runtime Next.js config wrapper generates through the tooling', async t => {
+  const project = await temporary(t);
+  await mkdir(join(project, 'messages'));
+  await writeFile(join(project, 'messages/en.json'), JSON.stringify({ greeting: 'Hello' }));
+  const { withNordbeamLocale } = await import('@nordbeam/locale/next');
+  const config = await withNordbeamLocale({ output: 'standalone' }, { root: project, outDir: 'generated' })('phase-production-build', {});
+  assert.deepEqual(config, { output: 'standalone' });
+  assert.equal(existsSync(join(project, 'generated/index.js')), true);
 });
 
 test('core no longer depends on the four migration parsers', () => {
@@ -119,11 +197,15 @@ test('codemod help names the package, and a real codemod run works end to end', 
 });
 
 test('every entry point resolves for require(), so a config bundled as CommonJS can load the Vite plugin', async () => {
-  for (const pkg of [rootPackage, migratePackage]) {
-    for (const [key, conditions] of Object.entries(pkg.exports)) assert.equal(conditions.default, conditions.import, `${pkg.name} ${key} needs a default condition`);
+  for (const pkg of [rootPackage, runtimePackage, migratePackage]) {
+    for (const [key, conditions] of Object.entries(pkg.exports)) {
+      if (typeof conditions === 'string') continue;
+      assert.equal(conditions.default, conditions.import, `${pkg.name} ${key} needs a default condition`);
+    }
   }
   // Vite bundles vite.config.ts as CommonJS in a package without "type": "module"; Node 22.12+ requires ES modules.
   const require = createRequire(new URL('package.json', root));
-  assert.equal(typeof require('@nordbeam/locale/vite').default, 'function');
-  assert.equal(typeof require('@nordbeam/locale/vite').nordbeamLocale, 'function');
+  assert.equal(typeof require('nordbeam-locale/vite').default, 'function');
+  assert.equal(typeof require('nordbeam-locale/vite').nordbeamLocale, 'function');
+  assert.equal(typeof require('@nordbeam/locale/next').withNordbeamLocale, 'function');
 });

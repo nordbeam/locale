@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defineRouting, domainRouting, getPathname, servingDomain } from '../dist/next-routing.js';
+import { defineRouting, domainRouting, getPathname, servingDomain } from '../packages/locale/dist/next-routing.js';
 import { domainRouting as fixtureRouting } from './next-domains-fixtures/routing.mjs';
 
 const base = { locales: ['en', 'de', 'fr'], defaultLocale: 'en' };

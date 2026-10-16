@@ -7,11 +7,47 @@ out in this file.
 
 ## Unreleased
 
-Fixes and additions from migrating a production app (13,899 messages in four
-locales) from Lingui 3. One type change, in the TanStack Start adapter:
+Breaking: the runtime and the build tooling are now separate packages, so a
+production install carries only the runtime. The rest are fixes and additions
+from migrating a production app (13,899 messages in four locales) from Lingui 3,
+with one more type change, in the TanStack Start adapter:
 `useHtmlAttributes().lang` is typed `string` (it was the locale type).
 
-### `@nordbeam/locale`
+### Two packages
+
+- **`@nordbeam/locale` is the runtime**: the locale store, the React, Vue,
+  Svelte, Solid, Next.js and TanStack Start adapters, `rich()` and the
+  development inspector. It has no dependencies. An application keeps it in
+  `dependencies`. A production install (`npm install --omit=dev`) is one
+  package and 0.7 MB on disk, where 0.4.0 installed eight packages and 9.7 MB:
+  the compiler, the CLI, `oxc-parser` with its native binding, and the
+  `@formatjs` parser.
+- **`nordbeam-locale` is the tooling**: the CLI, the compiler, the Vite plugin,
+  the test helpers, the agent APIs and the MCP server. Add it to
+  `devDependencies` at the same version. The package used to be a shim that
+  ran the CLI of `@nordbeam/locale`; `npx nordbeam-locale` now runs the real
+  thing.
+- **Moving.** Install both packages, then change the tooling imports:
+  `@nordbeam/locale/vite` becomes `nordbeam-locale/vite`, and the same for
+  `/compiler`, `/project`, `/translations`, `/po`, `/schema`, `/config`,
+  `/pseudo`, `/testing`, `/agent`, `/agent/plans`, `/agent/events`,
+  `/agent/inspect` and `/mcp`. `catalogSchema` and `configSchema` are no
+  longer exported from `@nordbeam/locale`; import them from
+  `nordbeam-locale/schema`. Application imports (`@nordbeam/locale/react`,
+  `/react/rich`, `/tanstack-start`, `/next/runtime` and the rest) do not change.
+- `withNordbeamLocale()` stays at `@nordbeam/locale/next`, because `next start`
+  loads `next.config` in production too. It loads `nordbeam-locale` for
+  `next dev` and `next build`, and at `next start` returns the configuration
+  without generating, since the build already compiled the messages.
+- `@nordbeam/locale-migrate` peers on `nordbeam-locale` instead of
+  `@nordbeam/locale`.
+- `init` says which packages to install, as `notes`: the runtime when it
+  scaffolds framework files that import it, and the tooling when
+  `package.json` does not list it. `capabilities --json` reports `product:
+  "nordbeam-locale"`, and installed skills record `nordbeam-locale` as their
+  package.
+
+### `nordbeam-locale` and `@nordbeam/locale`
 
 - **Scopes read non-ASCII names.** The crawl behind scopes computed from code
   matched property chains with an ASCII-only pattern, so `m.för()` and
@@ -144,10 +180,6 @@ locales) from Lingui 3. One type change, in the TanStack Start adapter:
   rewrite changed 3,170 calls in 496 files.
 - The `--catalog-format` help says it names the format of the legacy catalogs
   being read.
-
-### `nordbeam-locale`
-
-- Released at the same version as `@nordbeam/locale`.
 
 ## 0.4.0
 

@@ -5,9 +5,13 @@ the build, server, client, and middleware boundaries documented here.
 
 ## Build configuration
 
-`@nordbeam/locale/next` is a build-only entry. It resolves static or asynchronous Next
-configuration, reads `nordbeam-locale.config.json`, generates typed ESM, and then
-returns the original Next configuration unchanged:
+`@nordbeam/locale/next` wraps the Next configuration. For `next dev` and
+`next build` it resolves static or asynchronous Next configuration, reads
+`nordbeam-locale.config.json`, generates typed ESM with `nordbeam-locale` (a
+devDependency), and then returns the original Next configuration unchanged.
+`next start` loads `next.config` as well; there the wrapper returns the
+configuration without generating or loading `nordbeam-locale`, so a production
+install without devDependencies starts:
 
 ```js
 import { withNordbeamLocale } from '@nordbeam/locale/next';

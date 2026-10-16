@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileProject } from '../dist/compiler.js';
 import { JSDOM } from 'jsdom';
-import { createMessageInspector, mountInspectorOverlay, scanRenderedText } from '../dist/inspector.js';
+import { createMessageInspector, mountInspectorOverlay, scanRenderedText } from '../packages/locale/dist/inspector.js';
 
 async function messagesFor(catalog, extra = {}) {
   const project = compileProject({ baseLocale: 'en', catalogs: { en: catalog }, ...extra });

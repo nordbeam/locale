@@ -1,7 +1,7 @@
 {
   "name": "@nordbeam/locale-migrate",
   "version": "0.4.0",
-  "description": "Migration tools for @nordbeam/locale: convert i18next, next-intl, FormatJS, Lingui, Tolgee and other catalogs and source calls",
+  "description": "Migration tools for nordbeam-locale: convert i18next, next-intl, FormatJS, Lingui, Tolgee and other catalogs and source calls",
   "keywords": [
     "i18n",
     "migration",
@@ -78,7 +78,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "peerDependencies": {
-    "@nordbeam/locale": "0.4.0"
+    "nordbeam-locale": "0.4.0"
   },
   "dependencies": {
     "@babel/parser": "7.29.8",

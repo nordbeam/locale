@@ -6,6 +6,7 @@ renders can use one instance per request.
 
 ```bash
 npm install @nordbeam/locale vue
+npm install --save-dev nordbeam-locale
 ```
 
 ```ts
@@ -84,7 +85,7 @@ app is created.
 
 ## Vite
 
-`@nordbeam/locale/vite` infers selections from `loadLocale` and `selectMessages`
+`nordbeam-locale/vite` infers selections from `loadLocale` and `selectMessages`
 calls in `.js`/`.ts` modules. A raw `.vue` file is skipped. Calls inside
 `<script>` blocks are only analyzed if the Vue plugin passes them to Vite's
 transform hook under a script id. If selections fall back to the full catalog,

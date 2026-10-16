@@ -37,7 +37,7 @@ Use [skipped-constructs.md](skipped-constructs.md). Re-run `npx nordbeam-locale 
 
 ## 4. Replace the legacy boundary
 
-- Build config: `migrate-project` does not edit an existing `vite.config.*` or `next.config.*`. Add `nordbeamLocale()` from `@nordbeam/locale/vite` to the Vite plugins, or wrap the Next config with `withNordbeamLocale()` from `@nordbeam/locale/next`, and make sure `@nordbeam/locale` is in `dependencies` (the runtime imports it), not only the migration package.
+- Build config: `migrate-project` does not edit an existing `vite.config.*` or `next.config.*`. Add `nordbeamLocale()` from `nordbeam-locale/vite` to the Vite plugins, or wrap the Next config with `withNordbeamLocale()` from `@nordbeam/locale/next`, and make sure `@nordbeam/locale` is in `dependencies` (the runtime imports it), not only the migration package.
 
 - Provider and bootstrap: remove the old provider, plugin or `init()`; the Nordbeam adapter replaces them.
 - Language switching: the old `changeLanguage`/`setLocale`/`$locale.set` becomes the adapter's `setLocale`.

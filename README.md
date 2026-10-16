@@ -14,9 +14,14 @@ Requirements: Node 22.12 or newer, TypeScript 5.6 or newer, and Vite 6, 7, or 8
 for the Vite plugin.
 
 ```sh
-npm install @nordbeam/locale
+npm install @nordbeam/locale                      # the runtime: framework adapters and rich()
+npm install --save-dev nordbeam-locale            # the CLI, compiler and Vite plugin
 npm install --save-dev @nordbeam/locale-migrate   # only when migrating existing catalogs
 ```
+
+Install them at the same version. The generated modules do not import either
+package, so a project that uses only them, without a framework adapter, needs
+`nordbeam-locale` alone.
 
 ## Choose your framework
 

@@ -9,7 +9,7 @@ import { compiled, temporary } from './helpers.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const fixtures = join(root, 'test/fixtures/svelte');
-const svelteEntry = pathToFileURL(join(root, 'dist/svelte.js')).href;
+const svelteEntry = pathToFileURL(join(root, 'packages/locale/dist/svelte.js')).href;
 const catalogs = {
   en: { greeting: 'Hello {name}', items: '{count, plural, one {# item} other {# items}}' },
   fr: { greeting: 'Bonjour {name}', items: '{count, plural, one {# article} other {# articles}}' },

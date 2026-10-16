@@ -35,9 +35,24 @@ Requirements: Node **22.12 or newer**, TypeScript **5.6 or newer**, and Vite
 **6, 7, or 8** for the plugin. Generated modules target modern ESM environments
 with native `Intl`.
 
-The canonical names are `@nordbeam/locale`, the `nordbeam-locale` command,
-`nordbeam-locale.config.json`, `nordbeamLocale()`, `withNordbeamLocale()`, and
-the `.nordbeam-locale-manifest.json` output marker.
+The canonical names are `@nordbeam/locale`, the `nordbeam-locale` command and
+package, `nordbeam-locale.config.json`, `nordbeamLocale()`, `withNordbeamLocale()`,
+and the `.nordbeam-locale-manifest.json` output marker.
+
+Nordbeam Locale ships as two packages, released at the same version:
+
+- `@nordbeam/locale` is the runtime an application imports: the React, Vue,
+  Svelte, Solid, Next.js and TanStack Start adapters, `rich()`, the locale store
+  and the development inspector. It has no dependencies. Install it as a
+  dependency.
+- `nordbeam-locale` is the tooling: the CLI, the compiler, the Vite plugin, the
+  test helpers, the agent APIs and the MCP server. It carries the ICU parser and
+  the source scanner. Install it as a devDependency; a production install leaves
+  it out.
+
+The generated modules import neither. `withNordbeamLocale()` comes from
+`@nordbeam/locale/next`, because `next start` loads `next.config` in production
+too; it loads `nordbeam-locale` only for `next dev` and `next build`.
 
 `init` creates `nordbeam-locale.config.json`, an English starter catalog, and
 generated modules under `src/i18n`. Existing catalogs, configuration, application
@@ -45,11 +60,10 @@ files, scripts, and ignore rules are preserved. Edit the source catalogs, not
 generated files, or configure different `catalogs` and `outDir` paths. Rerunning
 `init` is safe for an existing project.
 
-The package also exposes dependency-free schema builders for editor key
-completion, config validation, and source-message hover metadata; see the
-[editor guide](EDITOR.md). They are available from `@nordbeam/locale/schema` and
-the main package for custom tooling, without adding anything to the runtime
-bundle.
+The tooling also exposes schema builders for editor key completion, config
+validation, and source-message hover metadata; see the
+[editor guide](EDITOR.md). They are available from `nordbeam-locale/schema` for
+custom tooling.
 
 The same guide documents the opt-in development inspector, which can show
 in-context key, locale, arguments, result, and timing data in a browser overlay.
@@ -194,7 +208,7 @@ Add the plugin to `vite.config.ts`:
 
 ```ts
 import { defineConfig } from 'vite';
-import { nordbeamLocale } from '@nordbeam/locale/vite';
+import { nordbeamLocale } from 'nordbeam-locale/vite';
 
 export default defineConfig({ plugins: [nordbeamLocale()] });
 ```
@@ -946,7 +960,7 @@ Pseudo-locales expand visible text and mark it, so layout and truncation problem
 show before translation. Generate one with the `pseudo` command shown in
 [Refactoring and project diagnostics](#refactoring-and-project-diagnostics). For a
 custom visual-test pipeline, the programmatic `pseudoLocalizeMessage` and
-`pseudoLocalizeCatalog` helpers are exported from `@nordbeam/locale/pseudo`. See
+`pseudoLocalizeCatalog` helpers are exported from `nordbeam-locale/pseudo`. See
 [pseudo](reference/pseudo.md).
 
 ## Testing
@@ -956,7 +970,7 @@ keeps selectors refactorable and makes multi-locale snapshots concise without
 adding anything to application bundles:
 
 ```ts
-import { createMessageTestHelpers } from '@nordbeam/locale/testing';
+import { createMessageTestHelpers } from 'nordbeam-locale/testing';
 import type { Messages, Locale } from './src/i18n/index.js';
 import { locales, loadLocale } from './src/i18n/index.js';
 
@@ -972,7 +986,7 @@ synchronously. Three helpers build others from it, each with the same IDs,
 nested view and type:
 
 ```ts
-import { compileMessages, messageIds, withMessages } from '@nordbeam/locale/testing';
+import { compileMessages, messageIds, withMessages } from 'nordbeam-locale/testing';
 import en from './src/i18n/locales/en.js';
 
 const ids = messageIds(en);                 // every message renders its ID

@@ -1,10 +1,10 @@
-# Agent plans — `@nordbeam/locale/agent/plans`
+# Agent plans — `nordbeam-locale/agent/plans`
 
 This entry re-exports the plan parser and application API from the core plan
 module. Use it when an automation needs a reviewable write plan.
 
 ```ts
-import { parsePlan, applyPlan, serializePlan } from '@nordbeam/locale/agent/plans';
+import { parsePlan, applyPlan, serializePlan } from 'nordbeam-locale/agent/plans';
 ```
 
 Plan application is explicit and should be kept separate from read-only

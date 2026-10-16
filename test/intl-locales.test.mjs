@@ -7,9 +7,9 @@ import { checkProject, compileProject, createCompiler, CompileError } from '../d
 import { validateConfig } from '../dist/config.js';
 import { mergePo, parsePo, serializePo } from '../dist/po.js';
 import { exportPo, importPo } from '../dist/translations.js';
-import { createNextMiddleware } from '../dist/next-middleware.js';
-import { defineRouting } from '../dist/next-routing.js';
-import { acceptLanguageLocale, alternateLinkHeader } from '../dist/locale-request.js';
+import { createNextMiddleware } from '../packages/locale/dist/next-middleware.js';
+import { defineRouting } from '../packages/locale/dist/next-routing.js';
+import { acceptLanguageLocale, alternateLinkHeader } from '../packages/locale/dist/locale-request.js';
 import { scanContext } from '../dist/text-scan.js';
 import { compiled, temporary } from './helpers.mjs';
 

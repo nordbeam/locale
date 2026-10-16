@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runWithStartContext } from '@tanstack/start-storage-context';
-import { createLocaleFunctionMiddleware, createLocaleMiddleware, defineRouting, getLocale } from '../dist/tanstack-start.js';
+import { createLocaleFunctionMiddleware, createLocaleMiddleware, defineRouting, getLocale } from '../packages/locale/dist/tanstack-start.js';
 
 const routing = (localePrefix, extra = {}) => defineRouting({
   locales: ['en', 'fr'],

@@ -1,9 +1,9 @@
-# Compiler — `@nordbeam/locale/compiler`
+# Compiler — `nordbeam-locale/compiler`
 
 Use this entry to compile catalogs or build custom generation tooling.
 
 ```ts
-import { compileProject, checkProject } from '@nordbeam/locale/compiler';
+import { compileProject, checkProject } from 'nordbeam-locale/compiler';
 ```
 
 - `Catalog`, `Formats`, `CompilerOptions`, `CompilerCacheOptions` — compiler

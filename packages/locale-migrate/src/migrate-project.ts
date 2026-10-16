@@ -1,14 +1,14 @@
 import { chmod, lstat, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { checkProject, compileProject, CompileError, parseIcuMessage, staticScopes } from '@nordbeam/locale/internal/migrate';
-import type { IcuMessageElement } from '@nordbeam/locale/internal/migrate';
-import type { Catalog } from '@nordbeam/locale/internal/migrate';
-import { discoverConfig, readConfig } from '@nordbeam/locale/internal/migrate';
-import { initialize, planInitialize } from '@nordbeam/locale/internal/migrate';
-import type { InitPlan } from '@nordbeam/locale/internal/migrate';
-import type { InitFramework } from '@nordbeam/locale/internal/migrate';
-import type { GenerateOptions } from '@nordbeam/locale/internal/migrate';
+import { checkProject, compileProject, CompileError, parseIcuMessage, staticScopes } from 'nordbeam-locale/internal/migrate';
+import type { IcuMessageElement } from 'nordbeam-locale/internal/migrate';
+import type { Catalog } from 'nordbeam-locale/internal/migrate';
+import { discoverConfig, readConfig } from 'nordbeam-locale/internal/migrate';
+import { initialize, planInitialize } from 'nordbeam-locale/internal/migrate';
+import type { InitPlan } from 'nordbeam-locale/internal/migrate';
+import type { InitFramework } from 'nordbeam-locale/internal/migrate';
+import type { GenerateOptions } from 'nordbeam-locale/internal/migrate';
 import { migrateCatalog, migrationIdRenames } from './migrate-catalog.js';
 import { inferMigrationFormat } from './catalog-formats.js';
 import type { MigrationFormat } from './catalog-formats.js';
@@ -24,7 +24,7 @@ import { applyReactProject, planReactProject } from './migrate-react.js';
 import type { ReactMigrationFormat, ReactProjectMigrationPlan } from './migrate-react.js';
 import { applyFrameworkProject, planFrameworkProject } from './migrate-frameworks.js';
 import type { FrameworkMigration, FrameworkProjectPlan } from './migrate-frameworks.js';
-import { CliError } from '@nordbeam/locale/internal/migrate';
+import { CliError } from 'nordbeam-locale/internal/migrate';
 
 export interface ProjectMigrationOptions extends GenerateOptions {
   from: string;

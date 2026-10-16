@@ -1,8 +1,8 @@
 ---
 name: nordbeam-locale
-description: Use Nordbeam Locale (@nordbeam/locale), which compiles ICU MessageFormat JSON catalogs into typed, tree-shaken JavaScript with lazy locale loading, for Vite + React, Next.js App Router, TanStack Start, Vue, Svelte, Solid and plain TypeScript/Node. Use whenever the project has nordbeam-locale.config.json, a messages/*.json catalog, a generated src/i18n folder or an @nordbeam/locale dependency, or the user has chosen Nordbeam Locale, and the task touches i18n, l10n, translations, locales, adding a language, plurals, ICU messages, message keys, a language switcher, locale routing, RTL, or the nordbeam-locale CLI (init, check, generate, verify, explain). Covers first-time setup per framework, editing catalogs, ICU syntax, the generated typed API, and the check, generate, verify loop. Not for projects that use another i18n library (i18next, next-intl, react-intl, Lingui, vue-i18n) unless they are moving to Nordbeam; use nordbeam-locale-migrate for that.
+description: Use Nordbeam Locale (@nordbeam/locale), which compiles ICU MessageFormat JSON catalogs into typed, tree-shaken JavaScript with lazy locale loading, for Vite + React, Next.js App Router, TanStack Start, Vue, Svelte, Solid and plain TypeScript/Node. Use whenever the project has nordbeam-locale.config.json, a messages/*.json catalog, a generated src/i18n folder or a nordbeam-locale or @nordbeam/locale dependency, or the user has chosen Nordbeam Locale, and the task touches i18n, l10n, translations, locales, adding a language, plurals, ICU messages, message keys, a language switcher, locale routing, RTL, or the nordbeam-locale CLI (init, check, generate, verify, explain). Covers first-time setup per framework, editing catalogs, ICU syntax, the generated typed API, and the check, generate, verify loop. Not for projects that use another i18n library (i18next, next-intl, react-intl, Lingui, vue-i18n) unless they are moving to Nordbeam; use nordbeam-locale-migrate for that.
 license: Apache-2.0
-compatibility: Needs Node 22.12 or newer and the nordbeam-locale CLI from the @nordbeam/locale npm package in the project.
+compatibility: Needs Node 22.12 or newer, the nordbeam-locale package (the CLI) as a devDependency, and @nordbeam/locale (the runtime) at the same version when the app uses a framework adapter.
 ---
 
 # Nordbeam Locale
@@ -21,11 +21,12 @@ Run every command from the project root with `npx nordbeam-locale ...` (or the p
 ## 2. First-time setup
 
 ```sh
-npm install @nordbeam/locale
+npm install @nordbeam/locale                 # the runtime the framework adapters live in
+npm install --save-dev nordbeam-locale       # the CLI, compiler and Vite plugin
 npx nordbeam-locale init --framework <next|vite-react|tanstack-start|vue|svelte|solid>   # omit for plain TS/Node
 ```
 
-Install first: without a local install, `npx nordbeam-locale` searches the registry for an unrelated unscoped package and fails. Without `--framework`, init infers it from `package.json` (next, @tanstack/react-start, else vite plus vue, svelte, solid or React). Also available: `--catalogs <dir>`, `--base-locale <locale>`, `--out-dir <dir>`. Init creates what is missing and never replaces a file, so an existing `vite.config.ts`, `next.config.*` or `proxy.ts` is reported as preserved and you must wire it by hand. It also adds `i18n`, `i18n:watch` and `prebuild` scripts and seeds a starter `messages/en.json` (`greeting`, `items`) that you replace with the app's real base-language text.
+Install first, at the same version: without a local install, `npx nordbeam-locale` downloads the latest release, which may not match the runtime in `package.json`. A plain TS/Node project that only imports the generated modules needs `nordbeam-locale` alone. Without `--framework`, init infers it from `package.json` (next, @tanstack/react-start, else vite plus vue, svelte, solid or React). Also available: `--catalogs <dir>`, `--base-locale <locale>`, `--out-dir <dir>`. Init creates what is missing and never replaces a file, so an existing `vite.config.ts`, `next.config.*` or `proxy.ts` is reported as preserved and you must wire it by hand. It also adds `i18n`, `i18n:watch` and `prebuild` scripts and seeds a starter `messages/en.json` (`greeting`, `items`) that you replace with the app's real base-language text.
 
 | Framework | What you still do after init | Read |
 | --- | --- | --- |
@@ -87,7 +88,7 @@ Generated modules export `loadLocale(locale)` (resolves `{ locale, messages }`),
 - **Find text that was never translated**: `hardcoded --json` lists UI text in the source that is not a catalog message, with `file`, `line`, `text`, `confidence` and `reason`. `hardcoded --fix --json` previews replacing text with the catalog message that renders the same; `--extract` also adds new messages to the base catalog. Read `plan.skipped` before applying with `--write --regenerate`, then translate the new keys in the other locales. Mark text that must stay as written with a `// nordbeam-locale-ignore` comment.
 - **How complete, used or large are the translations**: `report --json` for the numbers. When a person asks, offer `npx nordbeam-locale report --open`, which writes a local HTML page with coverage, unused messages, namespaces, scopes and catalog sizes.
 - **Pseudo-locale for layout testing**: `pseudo --locale en-XA --dry-run --json`, then without `--dry-run`.
-- **Tests**: `@nordbeam/locale/testing` gives `createMessageTestHelpers<Messages>()`, and `messageIds`, `withMessages` and `compileMessages` for the messages a component test renders; see [references/node.md](references/node.md).
+- **Tests**: `nordbeam-locale/testing` gives `createMessageTestHelpers<Messages>()`, and `messageIds`, `withMessages` and `compileMessages` for the messages a component test renders; see [references/node.md](references/node.md).
 - **Production builds** must run with `NODE_ENV=production` (or `generate --production`); otherwise the output keeps development argument guards. `init` adds `"prebuild": "nordbeam-locale"`, not `prepare`.
 - **MCP**: `claude mcp add nordbeam-locale -- npx nordbeam-locale mcp` serves check, generate, inspect and rename as tools.
 

@@ -1,10 +1,10 @@
-# Testing helpers — `@nordbeam/locale/testing`
+# Testing helpers — `nordbeam-locale/testing`
 
 Bind test helpers to the generated message contract, and build the messages
 objects that component tests render with.
 
 ```ts
-import { compileMessages, createMessageTestHelpers, messageIds, withMessages } from '@nordbeam/locale/testing';
+import { compileMessages, createMessageTestHelpers, messageIds, withMessages } from 'nordbeam-locale/testing';
 ```
 
 `createMessageTestHelpers<Messages>()` returns selector-to-key helpers and a

@@ -1,9 +1,9 @@
-# Agent inspection — `@nordbeam/locale/agent/inspect`
+# Agent inspection — `nordbeam-locale/agent/inspect`
 
 This entry re-exports project inspection helpers for local automation.
 
 ```ts
-import { inspectProject } from '@nordbeam/locale/agent/inspect';
+import { inspectProject } from 'nordbeam-locale/agent/inspect';
 ```
 
 Inspection is read-only: it resolves configuration, locales, catalog counts,

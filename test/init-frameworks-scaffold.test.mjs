@@ -68,7 +68,7 @@ for (const [framework, { dependency, plugin, call, statement }] of Object.entrie
 
     const config = await readFile(join(root, 'vite.config.ts'), 'utf8');
     assert.ok(config.includes(statement), config);
-    assert.match(config, /import \{ nordbeamLocale \} from '@nordbeam\/locale\/vite';/);
+    assert.match(config, /import \{ nordbeamLocale \} from 'nordbeam-locale\/vite';/);
     assert.match(config, new RegExp(`plugins: \\[${call.replace('(', '\\(').replace(')', '\\)')}, nordbeamLocale\\(\\)\\]`));
   });
 

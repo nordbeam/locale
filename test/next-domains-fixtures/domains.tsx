@@ -1,6 +1,6 @@
-import { defineRouting } from '../../dist/next-routing.js';
-import { createNextNavigation } from '../../dist/next-navigation.js';
-import { createNextMiddleware } from '../../dist/next-middleware.js';
+import { defineRouting } from '../../packages/locale/dist/next-routing.js';
+import { createNextNavigation } from '../../packages/locale/dist/next-navigation.js';
+import { createNextMiddleware } from '../../packages/locale/dist/next-middleware.js';
 
 const routing = defineRouting({
   locales: ['en', 'de', 'fr'],

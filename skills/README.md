@@ -33,7 +33,7 @@ The [`skills` CLI](https://github.com/vercel-labs/skills) finds `skills/*/SKILL.
 
 ### 3. From the npm package (version-matched)
 
-The skills ship inside `@nordbeam/locale`, so the copy in a project always matches the CLI version installed there:
+The skills ship inside `nordbeam-locale`, the CLI package, so the copy in a project always matches the CLI version installed there:
 
 ```sh
 npx nordbeam-locale init --agent          # AGENTS.md block + skills (works on an existing config too)

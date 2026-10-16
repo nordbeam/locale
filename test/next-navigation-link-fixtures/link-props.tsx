@@ -1,4 +1,4 @@
-import { createNextNavigation } from '../../dist/next-navigation.js';
+import { createNextNavigation } from '../../packages/locale/dist/next-navigation.js';
 
 const { Link, redirect } = createNextNavigation({ locales: ['en', 'fr'], defaultLocale: 'en', localePrefix: 'as-needed' });
 

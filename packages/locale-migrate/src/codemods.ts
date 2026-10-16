@@ -3,9 +3,9 @@ import { constants } from 'node:fs';
 import { dirname, extname, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { parse, parseExpression } from '@babel/parser';
-import { discoverConfig } from '@nordbeam/locale/internal/migrate';
-import { createPlan } from '@nordbeam/locale/internal/migrate';
-import type { FilePlan } from '@nordbeam/locale/internal/migrate';
+import { discoverConfig } from 'nordbeam-locale/internal/migrate';
+import { createPlan } from 'nordbeam-locale/internal/migrate';
+import type { FilePlan } from 'nordbeam-locale/internal/migrate';
 
 export type CodemodFormat = 'auto' | 'i18next' | 'next-intl' | 'formatjs' | 'lingui'
   | 'vue-i18n' | 'tolgee' | 'next-international' | 'typesafe-i18n'

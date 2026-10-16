@@ -67,7 +67,7 @@ test('the persistent cache defaults to node_modules/.cache/nordbeam-locale', asy
 
 test('inspection recognizes the legacy Vite and Next wrapper names as configured', async t => {
   const root = await fixture(t);
-  await writeFile(join(root, 'vite.config.ts'), "import { nordbeamI18n } from '@nordbeam/locale/vite';\nexport default { plugins: [nordbeamI18n()] };\n");
+  await writeFile(join(root, 'vite.config.ts'), "import { nordbeamI18n } from 'nordbeam-locale/vite';\nexport default { plugins: [nordbeamI18n()] };\n");
   await writeFile(join(root, 'next.config.mjs'), "import { withNordbeamI18n } from '@nordbeam/locale/next';\nexport default withNordbeamI18n({});\n");
   const inspected = await inspectProject({ root, baseLocale: 'en', outDir: 'generated' }, join(root, 'nordbeam-locale.config.json'));
   const byKind = Object.fromEntries(inspected.integrations.map(item => [item.kind, item.configured]));

@@ -1,0 +1,162 @@
+{
+  "name": "@nordbeam/locale",
+  "version": "0.4.0",
+  "description": "Nordbeam Locale runtime: locale loading and the React, Vue, Svelte, Solid, Next.js and TanStack Start adapters for messages compiled by nordbeam-locale",
+  "keywords": [
+    "i18n",
+    "internationalization",
+    "l10n",
+    "localization",
+    "icu",
+    "messageformat",
+    "translations",
+    "typescript",
+    "react",
+    "nextjs",
+    "tanstack-start",
+    "vue",
+    "svelte",
+    "solid"
+  ],
+  "license": "Apache-2.0",
+  "author": "Nordbeam",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nordbeam/locale.git",
+    "directory": "packages/locale"
+  },
+  "bugs": {
+    "url": "https://github.com/nordbeam/locale/issues"
+  },
+  "homepage": "https://github.com/nordbeam/locale#readme",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "NOTICE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "default": "./dist/react.js"
+    },
+    "./react/rich": {
+      "types": "./dist/react-rich.d.ts",
+      "import": "./dist/react-rich.js",
+      "default": "./dist/react-rich.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "default": "./dist/vue.js"
+    },
+    "./svelte": {
+      "types": "./dist/svelte.d.ts",
+      "import": "./dist/svelte.js",
+      "default": "./dist/svelte.js"
+    },
+    "./solid": {
+      "types": "./dist/solid.d.ts",
+      "import": "./dist/solid.js",
+      "default": "./dist/solid.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js",
+      "default": "./dist/next.js"
+    },
+    "./next/runtime": {
+      "types": "./dist/next-runtime.d.ts",
+      "import": "./dist/next-runtime.js",
+      "default": "./dist/next-runtime.js"
+    },
+    "./next/middleware": {
+      "types": "./dist/next-middleware.d.ts",
+      "import": "./dist/next-middleware.js",
+      "default": "./dist/next-middleware.js"
+    },
+    "./next/navigation": {
+      "types": "./dist/next-navigation.d.ts",
+      "import": "./dist/next-navigation.js",
+      "default": "./dist/next-navigation.js"
+    },
+    "./next/routing": {
+      "types": "./dist/next-routing.d.ts",
+      "import": "./dist/next-routing.js",
+      "default": "./dist/next-routing.js"
+    },
+    "./next/server": {
+      "types": "./dist/next-server.d.ts",
+      "import": "./dist/next-server.js",
+      "default": "./dist/next-server.js"
+    },
+    "./tanstack-start": {
+      "types": "./dist/tanstack-start.d.ts",
+      "import": "./dist/tanstack-start.js",
+      "default": "./dist/tanstack-start.js"
+    },
+    "./inspector": {
+      "types": "./dist/inspector.d.ts",
+      "import": "./dist/inspector.js",
+      "default": "./dist/inspector.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@tanstack/react-router": ">=1.168.0",
+    "@tanstack/react-start": ">=1.168.0",
+    "next": ">=13.0.0",
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0",
+    "solid-js": "^1.8.0",
+    "svelte": "^4.0.0 || ^5.0.0",
+    "vue": "^3.3.0",
+    "nordbeam-locale": "0.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/react-router": {
+      "optional": true
+    },
+    "@tanstack/react-start": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    },
+    "nordbeam-locale": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

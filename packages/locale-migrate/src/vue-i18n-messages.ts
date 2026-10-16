@@ -1,4 +1,4 @@
-import type { Diagnostic } from '@nordbeam/locale/internal/migrate';
+import type { Diagnostic } from 'nordbeam-locale/internal/migrate';
 
 type Node =
   | { kind: 'text'; text: string }

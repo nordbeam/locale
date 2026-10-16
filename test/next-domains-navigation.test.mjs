@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
-import { defineRouting } from '../dist/next-routing.js';
+import { defineRouting } from '../packages/locale/dist/next-routing.js';
 import { domainRouting } from './next-domains-fixtures/routing.mjs';
 
 register('./next-pathnames-hooks.mjs', import.meta.url);
-const { createNextNavigation } = await import('../dist/next-navigation.js');
-const { NextNavigationClientLink } = await import('../dist/next-navigation-client.js');
+const { createNextNavigation } = await import('../packages/locale/dist/next-navigation.js');
+const { NextNavigationClientLink } = await import('../packages/locale/dist/next-navigation-client.js');
 
 const routing = domainRouting('as-needed');
 

@@ -80,7 +80,7 @@ test('init never overwrites application files and tells the user exactly what to
 
   assert.equal(result.frameworkNotes.length, 4);
   const [vite, start, router, route] = result.frameworkNotes;
-  assert.match(vite, /Add nordbeamLocale\(\) from @nordbeam\/locale\/vite to the plugins in vite\.config\.ts, before tanstackStart\(\)/);
+  assert.match(vite, /Add nordbeamLocale\(\) from nordbeam-locale\/vite to the plugins in vite\.config\.ts, before tanstackStart\(\)/);
   assert.match(start, /In src\/start\.ts, register the locale middleware: .*from '\.\/i18n\/routing'.*requestMiddleware: \[createLocaleMiddleware\(routing\)\]/);
   assert.match(router, /In src\/router\.tsx, spread the locale options into createRouter: import \{ i18n \} from '\.\/i18n\/tanstack'; createRouter\(\{ routeTree, \.\.\.i18n\.routerOptions\(\) \}\)/);
   assert.match(route, /In src\/routes\/__root\.tsx, import \{ i18n \} from '\.\.\/i18n\/tanstack' and: .*beforeLoad: i18n\.beforeLoad.*useHtmlAttributes\(\).*<i18n\.Provider>/);

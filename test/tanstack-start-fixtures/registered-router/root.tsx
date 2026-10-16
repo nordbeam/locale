@@ -1,5 +1,5 @@
 import { createRootRouteWithContext, createRoute } from '@tanstack/react-router';
-import type { TanStackStartRouterContext } from '../../../dist/tanstack-start.js';
+import type { TanStackStartRouterContext } from '../../../packages/locale/dist/tanstack-start.js';
 import { i18n } from './i18n.js';
 
 // The documented wiring: no wrapper, no annotation.

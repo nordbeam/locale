@@ -1,6 +1,6 @@
 # Vue 3 (Vite)
 
-Package entries: `@nordbeam/locale/vue` (adapter), `@nordbeam/locale/vite` (build plugin). Locale state lives on each Vue app that installs the plugin; there is no global current locale.
+Package entries: `@nordbeam/locale/vue` (adapter), `nordbeam-locale/vite` (build plugin). Locale state lives on each Vue app that installs the plugin; there is no global current locale.
 
 ## Setup
 

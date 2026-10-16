@@ -7,7 +7,7 @@
       "expected_output": "A reviewed preview, an applied migration, finished bindings, resolved skipped constructs and a passing verify.",
       "files": [],
       "expectations": [
-        "Installs @nordbeam/locale and @nordbeam/locale-migrate at the same version before running migrate-project",
+        "Installs nordbeam-locale and @nordbeam/locale-migrate (and @nordbeam/locale for the framework adapter) at the same version before running migrate-project",
         "Runs migrate-project with --format react-i18next --framework vite-react --source-dir src and --json WITHOUT --write first, and summarises counts and skipped codes for the user",
         "Passes --initial-locale-expression (or asks which expression holds the initial locale) instead of guessing it",
         "Notices the dynamic key (DYNAMIC_MESSAGE_KEY) and the <Trans> components (RICH_MESSAGE) in the preview and handles them deliberately (explicit map of literal keys, ICU rich tags with rich())",

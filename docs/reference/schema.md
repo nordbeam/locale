@@ -1,9 +1,9 @@
-# JSON schemas — `@nordbeam/locale/schema`
+# JSON schemas — `nordbeam-locale/schema`
 
 Build editor schemas without importing a JSON Schema runtime.
 
 ```ts
-import { catalogSchema, configSchema } from '@nordbeam/locale/schema';
+import { catalogSchema, configSchema } from 'nordbeam-locale/schema';
 ```
 
 - `catalogSchema(catalog, baseLocale?)` — schema for nested catalog keys.

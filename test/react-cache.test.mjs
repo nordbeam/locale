@@ -4,7 +4,7 @@ import * as React from 'react';
 import { createElement as h, Component, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
-import { createClientI18n, createSuspenseI18n } from '../dist/react.js';
+import { createClientI18n, createSuspenseI18n } from '../packages/locale/dist/react.js';
 
 // React exports act only from development builds. Production runs the same flushes without it.
 const act = React.act ?? (async run => { await run(); });

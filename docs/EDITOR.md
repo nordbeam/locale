@@ -53,12 +53,12 @@ For custom editors and other tools, the same builders are available without
 reading generated files:
 
 ```ts
-import { catalogSchema, configSchema } from '@nordbeam/locale/schema';
+import { catalogSchema, configSchema } from 'nordbeam-locale/schema';
 
 const schema = catalogSchema(baseCatalog, 'en');
 ```
 
-`validateConfig(value, file)` is also exported from `@nordbeam/locale/config` for tools
+`validateConfig(value, file)` is also exported from `nordbeam-locale/config` for tools
 that want the same actionable checks as the CLI without installing a JSON Schema
 validator.
 

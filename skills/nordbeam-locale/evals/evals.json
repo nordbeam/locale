@@ -7,9 +7,9 @@
       "expected_output": "The project is initialised with init --framework vite-react, English and French catalogs use ICU plural syntax, the App is wrapped in i18n.Provider and uses the generated typed messages, a switcher calls setLocale, and verify passes.",
       "files": [],
       "expectations": [
-        "Installs @nordbeam/locale before running any npx nordbeam-locale command",
+        "Installs nordbeam-locale (and @nordbeam/locale for the framework adapter) before running any npx nordbeam-locale command",
         "Runs npx nordbeam-locale init --framework vite-react (or init with the framework detected as vite-react)",
-        "Adds nordbeamLocale() from @nordbeam/locale/vite to vite.config.ts if the file already existed and was preserved",
+        "Adds nordbeamLocale() from nordbeam-locale/vite to vite.config.ts if the file already existed and was preserved",
         "Writes the item count as an ICU plural message with an other branch, using # for the count",
         "Creates messages/fr.json with the same argument names and a French plural (one and other branches at minimum) rather than copying English",
         "Wraps the app in <i18n.Provider initialLocale=\"en\"> imported from the scaffolded src/i18n/client and reads messages with i18n.useI18n()",

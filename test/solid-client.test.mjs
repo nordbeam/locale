@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createComponent, createEffect, createRoot } from 'solid-js';
-import { createSolidI18n } from '../dist/solid.js';
+import { createSolidI18n } from '../packages/locale/dist/solid.js';
 import { compiled, waitFor } from './helpers.mjs';
 
 // Reactivity needs Solid's client build, so run this file with

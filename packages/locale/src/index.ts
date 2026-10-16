@@ -3,9 +3,6 @@ export interface LoadedLocale<Locale extends string, Messages> {
   readonly messages: Messages;
 }
 
-export { catalogSchema, configSchema } from './schema.js';
-export type { JsonSchema } from './schema.js';
-
 export interface LocaleStore<Locale extends string, Messages> {
   getSnapshot(): LoadedLocale<Locale, Messages>;
   /** Read the current messages synchronously after the initial locale is loaded. */

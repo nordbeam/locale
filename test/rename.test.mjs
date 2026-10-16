@@ -19,7 +19,7 @@ async function fixture(t) {
 test('package identity and public APIs use Nordbeam Locale names', async () => {
   const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
   const lock = JSON.parse(await readFile(resolve('package-lock.json'), 'utf8'));
-  assert.equal(packageJson.name, '@nordbeam/locale');
+  assert.equal(packageJson.name, 'nordbeam-locale');
   assert.equal(lock.name, packageJson.name);
   assert.equal(lock.packages[''].name, packageJson.name);
   // No leading ./: npm publish rewrites it and warns that the bin was invalid.
@@ -27,7 +27,7 @@ test('package identity and public APIs use Nordbeam Locale names', async () => {
   assert.deepEqual(lock.packages[''].bin, { 'nordbeam-locale': 'dist/cli.js', 'nordbeam-locale-mcp': 'dist/mcp-bin.js', 'nordbeam-i18n': 'dist/cli.js' });
 
   const root = await import('@nordbeam/locale');
-  const vite = await import('@nordbeam/locale/vite');
+  const vite = await import('nordbeam-locale/vite');
   const next = await import('@nordbeam/locale/next');
   assert.equal(typeof root.createLocaleStore, 'function');
   assert.equal(typeof vite.nordbeamLocale, 'function');

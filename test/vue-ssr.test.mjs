@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSSRApp, defineComponent, h, Suspense } from 'vue';
 import { renderToString } from '@vue/server-renderer';
-import { createVueI18n } from '../dist/vue.js';
+import { createVueI18n } from '../packages/locale/dist/vue.js';
 import { compiled } from './helpers.mjs';
 
 const catalogs = {

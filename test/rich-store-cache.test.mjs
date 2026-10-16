@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createLocaleStore } from '../dist/index.js';
+import { createLocaleStore } from '../packages/locale/dist/index.js';
 
 const state = locale => ({ locale, messages: { hello: () => locale } });
 function deferred() {

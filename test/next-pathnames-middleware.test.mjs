@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NextRequest } from 'next/server.js';
-import { createNextMiddleware } from '../dist/next-middleware.js';
-import { defineRouting } from '../dist/next-routing.js';
+import { createNextMiddleware } from '../packages/locale/dist/next-middleware.js';
+import { defineRouting } from '../packages/locale/dist/next-routing.js';
 
 const pathnames = {
   '/about': { de: '/ueber-uns', fr: '/a-propos' },

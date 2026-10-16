@@ -39,15 +39,16 @@ jobs:
         run: |
           node -e "
             const tag = process.env.TAG.replace(/^v/, '');
-            const core = require('./package.json');
+            const tools = require('./package.json');
+            const runtime = require('./packages/locale/package.json');
             const migrate = require('./packages/locale-migrate/package.json');
-            const npx = require('./packages/nordbeam-locale/package.json');
             const problems = [];
-            if (core.version !== tag) problems.push('@nordbeam/locale is ' + core.version);
+            if (runtime.version !== tag) problems.push('@nordbeam/locale is ' + runtime.version);
+            if (tools.version !== tag) problems.push('nordbeam-locale is ' + tools.version);
             if (migrate.version !== tag) problems.push('@nordbeam/locale-migrate is ' + migrate.version);
-            if (migrate.peerDependencies['@nordbeam/locale'] !== tag) problems.push('@nordbeam/locale-migrate peers on @nordbeam/locale ' + migrate.peerDependencies['@nordbeam/locale']);
-            if (npx.version !== tag) problems.push('nordbeam-locale is ' + npx.version);
-            if (npx.dependencies['@nordbeam/locale'] !== tag) problems.push('nordbeam-locale depends on @nordbeam/locale ' + npx.dependencies['@nordbeam/locale']);
+            if (runtime.peerDependencies['nordbeam-locale'] !== tag) problems.push('@nordbeam/locale peers on nordbeam-locale ' + runtime.peerDependencies['nordbeam-locale']);
+            if (tools.peerDependencies['@nordbeam/locale'] !== tag) problems.push('nordbeam-locale peers on @nordbeam/locale ' + tools.peerDependencies['@nordbeam/locale']);
+            if (migrate.peerDependencies['nordbeam-locale'] !== tag) problems.push('@nordbeam/locale-migrate peers on nordbeam-locale ' + migrate.peerDependencies['nordbeam-locale']);
             if (problems.length) { console.error('Tag ' + process.env.TAG + ' does not match: ' + problems.join('; ')); process.exit(1); }
           "
       - run: npm test
@@ -57,10 +58,10 @@ jobs:
           # Trusted publishing authenticates through OIDC; the token is only a fallback.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          # @nordbeam/locale goes first because the other two require it at the same
-          # version. A version that is already on npm (a rerun, or a manual first
-          # publish) is skipped instead of failing the release.
-          for dir in . ./packages/locale-migrate ./packages/nordbeam-locale; do
+          # The runtime, the tooling and the migration package name each other as exact
+          # peers, so they go out together in this order. A version that is already on
+          # npm (a rerun, or a manual first publish) is skipped instead of failing.
+          for dir in ./packages/locale . ./packages/locale-migrate; do
             spec=$(node -p "const p = require('$dir/package.json'); p.name + '@' + p.version")
             if npm view "$spec" version >/dev/null 2>&1; then
               echo "$spec is already on npm"

@@ -29,7 +29,7 @@ async function materialize() {
   await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true });
   await mkdir(join(root, 'node_modules/@nordbeam'), { recursive: true });
-  await symlink(repository, join(root, 'node_modules/@nordbeam/locale'), 'junction');
+  await symlink(join(repository, 'packages/locale'), join(root, 'node_modules/@nordbeam/locale'), 'junction');
   await cp(sourceCatalog, join(root, 'src/i18n'), { recursive: true });
   await write(join(root, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
   await write(join(root, 'next.config.mjs'), 'export default { reactStrictMode: true };\n');
@@ -227,7 +227,7 @@ async function probePpr() {
   const app = join(repository, 'test/integration/generated/next-advanced-ppr', bundler);
   await rm(app, { recursive: true, force: true });
   await mkdir(join(app, 'node_modules/@nordbeam'), { recursive: true });
-  await symlink(repository, join(app, 'node_modules/@nordbeam/locale'), 'junction');
+  await symlink(join(repository, 'packages/locale'), join(app, 'node_modules/@nordbeam/locale'), 'junction');
   await write(join(app, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
   await write(join(app, 'app/layout.tsx'), `import type { ReactNode } from 'react';
 export default function Layout({ children }: { children: ReactNode }) { return <html><body>{children}</body></html>; }`);

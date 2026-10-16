@@ -8,6 +8,7 @@ public URL for the page's locale on its own.
 
 ```bash
 npm install @nordbeam/locale @tanstack/react-start @tanstack/react-router
+npm install --save-dev nordbeam-locale
 ```
 
 Tested with `@tanstack/react-start` 1.169 and `@tanstack/react-router` 1.170 on

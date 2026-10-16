@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { get } from 'svelte/store';
-import { createSvelteI18n } from '../dist/svelte.js';
+import { createSvelteI18n } from '../packages/locale/dist/svelte.js';
 import { compiled } from './helpers.mjs';
 
 const catalogs = {

@@ -11,7 +11,7 @@ npx nordbeam-locale explain <CODE> --json # severity, explanation, fix and docs 
 
 `capabilities` and `agent-guide` need no project configuration. Check `protocolVersion` (currently `1`) once and stop if it is not one you understand.
 
-Install the package before the first `npx nordbeam-locale ...`: `npm install @nordbeam/locale`. Without a local install, `npx` looks up an unrelated unscoped package named `nordbeam-locale` on the registry and fails or runs the wrong thing.
+Install the tooling before the first `npx nordbeam-locale ...`: `npm install --save-dev nordbeam-locale`, at the same version as `@nordbeam/locale` when the project has it. Without a local install, `npx` downloads the latest release, which may not match the project.
 
 ## Envelope and exit status
 

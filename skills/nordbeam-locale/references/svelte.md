@@ -1,6 +1,6 @@
 # Svelte 5 and SvelteKit (Vite)
 
-Package entries: `@nordbeam/locale/svelte` (`createSvelteI18n`, `setI18nContext`, `getI18nContext`), `@nordbeam/locale/vite`. Locale, messages and pending state are Svelte stores (store syntax also works in Svelte 4).
+Package entries: `@nordbeam/locale/svelte` (`createSvelteI18n`, `setI18nContext`, `getI18nContext`), `nordbeam-locale/vite`. Locale, messages and pending state are Svelte stores (store syntax also works in Svelte 4).
 
 ## Setup
 

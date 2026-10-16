@@ -11,6 +11,7 @@ import { parseCatalogJson } from './catalog-input.js';
 import { configKeys as persistedConfigKeys } from './config.js';
 import type { CatalogSource } from './catalog-diagnostics.js';
 import { CliError, usageError } from './error-codes.js';
+import { coreVersion } from './migrate-loader.js';
 
 const starter: Catalog = {
   greeting: 'Hello {name}!',
@@ -262,19 +263,19 @@ export { loadLocale, routing };
   if (viteConfig) {
     result.existing.push(viteConfig);
     if (!/nordbeam(?:Locale|I18n)\s*\(/.test(await textOrEmpty(viteConfig))) {
-      result.notes.push(`Add nordbeamLocale() from @nordbeam/locale/vite to the plugins in ${relative(root, viteConfig)}, before tanstackStart(): import { nordbeamLocale } from '@nordbeam/locale/vite'; plugins: [nordbeamLocale(), tanstackStart(), viteReact()].`);
+      result.notes.push(`Add nordbeamLocale() from nordbeam-locale/vite to the plugins in ${relative(root, viteConfig)}, before tanstackStart(): import { nordbeamLocale } from 'nordbeam-locale/vite'; plugins: [nordbeamLocale(), tanstackStart(), viteReact()].`);
     }
   } else if (Object.hasOwn(dependencies, '@vitejs/plugin-react')) {
     await createIfAbsent(resolve(root, 'vite.config.ts'), `import { defineConfig } from 'vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
-import { nordbeamLocale } from '@nordbeam/locale/vite';
+import { nordbeamLocale } from 'nordbeam-locale/vite';
 
 export default defineConfig({
   plugins: [nordbeamLocale(), tanstackStart(), viteReact()],
 });
 `, result, apply);
-  } else result.notes.push('Install @vitejs/plugin-react, then add nordbeamLocale() from @nordbeam/locale/vite, tanstackStart() from @tanstack/react-start/plugin/vite and viteReact() to the plugins in vite.config.ts.');
+  } else result.notes.push('Install @vitejs/plugin-react, then add nordbeamLocale() from nordbeam-locale/vite, tanstackStart() from @tanstack/react-start/plugin/vite and viteReact() to the plugins in vite.config.ts.');
 
   const start = resolve(root, 'src/start.ts');
   const router = resolve(root, 'src/router.tsx');
@@ -444,7 +445,7 @@ export const config = {
   } else if (framework === 'vite-react') {
     const viteConfig = await optionalFile(root, ['vite.config.ts', 'vite.config.js', 'vite.config.mjs']);
     if (!viteConfig) await createIfAbsent(resolve(root, 'vite.config.ts'), `import { defineConfig } from 'vite';
-import { nordbeamLocale } from '@nordbeam/locale/vite';
+import { nordbeamLocale } from 'nordbeam-locale/vite';
 
 export default defineConfig({
   plugins: [nordbeamLocale()],
@@ -465,13 +466,13 @@ export { loadLocale };
     else if (Object.hasOwn(await declaredDependencies(root), plugin.package)) {
       await createIfAbsent(resolve(root, 'vite.config.ts'), `import { defineConfig } from 'vite';
 ${plugin.statement}
-import { nordbeamLocale } from '@nordbeam/locale/vite';
+import { nordbeamLocale } from 'nordbeam-locale/vite';
 
 export default defineConfig({
   plugins: [${plugin.call}, nordbeamLocale()],
 });
 `, result, apply);
-    } else result.notes.push(`Install ${plugin.package}, then add ${plugin.call} and nordbeamLocale() from @nordbeam/locale/vite to the Vite plugins in vite.config.ts.`);
+    } else result.notes.push(`Install ${plugin.package}, then add ${plugin.call} and nordbeamLocale() from nordbeam-locale/vite to the Vite plugins in vite.config.ts.`);
     await createIfAbsent(resolve(outDir, `${framework}.ts`), frameworkAdapters[framework](baseLocale), result, apply);
   }
   return result;
@@ -491,6 +492,15 @@ async function requireAbsent(file: string): Promise<void> {
 async function readText(file: string): Promise<string | undefined> {
   try { return await readFile(file, 'utf8'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+}
+
+/** What the project needs installed: the tooling that the prebuild script runs,
+ * which npx can run without, and the runtime that a framework scaffold imports. */
+async function installNotes(root: string, framework: InitFramework | undefined): Promise<string[]> {
+  const declared = await declaredDependencies(root), version = await coreVersion(), notes: string[] = [];
+  if (framework && !Object.hasOwn(declared, '@nordbeam/locale')) notes.push(`install the runtime that the ${framework} files import: npm install @nordbeam/locale@${version}`);
+  if (!Object.hasOwn(declared, 'nordbeam-locale')) notes.push(`install the tooling that generates the messages: npm install --save-dev nordbeam-locale@${version}`);
+  return notes;
 }
 
 /** Seed an empty catalog directory or adopt existing catalogs, then generate.
@@ -566,9 +576,10 @@ export async function initialize(options: GenerateOptions, configFile: string, c
   const lint = await lintIgnoreEdits(root, outDir);
   for (const edit of lint.edits) { await writeFile(edit.file, edit.text); updated.push(edit.file); }
   const frameworkResult = framework ? await scaffoldFramework(root, outDir, framework, options.baseLocale) : undefined;
+  const notes = [...await installNotes(root, framework), ...lint.notes];
   return {
     project: {...compiled, catalogFiles, scopeFiles: [], changed, outDir}, seeded, created,
-    ...(updated.length ? { updated } : {}), ...(lint.notes.length ? { notes: lint.notes } : {}),
+    ...(updated.length ? { updated } : {}), ...(notes.length ? { notes } : {}),
     ...(framework ? { framework, frameworkCreated: frameworkResult!.created, frameworkExisting: frameworkResult!.existing, frameworkNotes: frameworkResult!.notes } : {}),
   };
 }

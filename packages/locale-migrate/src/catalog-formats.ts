@@ -5,7 +5,7 @@ import type { Comment, Expression, Node, ObjectExpression, Statement } from '@ba
 import { XMLParser } from 'fast-xml-parser';
 import gettext from 'gettext-parser';
 import { parse as parseYaml } from 'yaml';
-import type { Diagnostic } from '@nordbeam/locale/internal/migrate';
+import type { Diagnostic } from 'nordbeam-locale/internal/migrate';
 import { convertLinguiNodes, decodeLinguiMessage } from './lingui-messages.js';
 import type { LinguiNode } from './lingui-messages.js';
 import { grouped, linguiSourceIdWarning } from './grouped-warnings.js';

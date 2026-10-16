@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { withNordbeamLocale } from '../dist/next.js';
-import { createNextI18n } from '../dist/next-runtime.js';
+import { createNextI18n } from '../packages/locale/dist/next-runtime.js';
 import { temporary } from './helpers.mjs';
 
 async function withNodeEnv(value, run) {

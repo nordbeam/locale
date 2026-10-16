@@ -1,6 +1,6 @@
 # Vite + React
 
-Package entries: `@nordbeam/locale/vite` (build plugin), `@nordbeam/locale/react` (client adapter), `@nordbeam/locale/react/rich` (rich text, also re-exported from `/react`). Supports React 18 and 19 and Vite 6, 7 and 8.
+Package entries: `nordbeam-locale/vite` (build plugin), `@nordbeam/locale/react` (client adapter), `@nordbeam/locale/react/rich` (rich text, also re-exported from `/react`). Supports React 18 and 19 and Vite 6, 7 and 8.
 
 ## Setup
 
@@ -14,7 +14,7 @@ Creates `nordbeam-locale.config.json`, `messages/en.json`, `src/i18n/client.ts` 
 // vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { nordbeamLocale } from '@nordbeam/locale/vite';
+import { nordbeamLocale } from 'nordbeam-locale/vite';
 
 export default defineConfig({ plugins: [react(), nordbeamLocale()] });
 ```
@@ -123,7 +123,7 @@ Serialise only the locale string into the page, call `loadLocale` per request on
 ## Tests
 
 ```ts
-import { createMessageTestHelpers } from '@nordbeam/locale/testing';
+import { createMessageTestHelpers } from 'nordbeam-locale/testing';
 import type { Messages } from './i18n/index.js';
 import { locales, loadLocale } from './i18n/index.js';
 
