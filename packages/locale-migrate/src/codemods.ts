@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { parse, parseExpression } from '@babel/parser';
 import { discoverConfig } from 'nordbeam-locale/internal/migrate';
 import { createPlan } from 'nordbeam-locale/internal/migrate';
+import { revisionsMapper } from './codemod-positions.js';
 import type { FilePlan } from 'nordbeam-locale/internal/migrate';
 
 export type CodemodFormat = 'auto' | 'i18next' | 'next-intl' | 'formatjs' | 'lingui'
@@ -2787,7 +2788,7 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
     files.push(file);
     let code = source, replacements = 0, typeImportsMoved = 0;
     let result: CodemodSourceResult;
-    const revisions = new Set<string>([source]);
+    const revisions = new Set<string>([source]), history = [source];
     // The single-source API deliberately lowers an innermost call first so
     // every replacement uses offsets from one revision. At project level we
     // can safely reparse the exact output and converge in one reviewed run.
@@ -2798,9 +2799,11 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
       if (result.code === code) break;
       if (revisions.has(result.code)) throw new Error(`Codemod did not converge for ${file}; no files were written.`);
       revisions.add(result.code);
+      history.push(result.code);
       code = result.code;
     }
-    const bindingSkips: CodemodSkip[] = [];
+    const converged = code;
+    const bindingSkips: CodemodSkip[] = [], fileWarnings: CodemodSkip[] = [];
     // Without messagesImport the codemod cannot add the generated binding, so
     // a rewrite that introduces an unbound `m` would compile-fail while still
     // reporting success. Leave such a file unchanged and say why; preview and
@@ -2812,7 +2815,7 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
       if (before && after && after.unbound > before.unbound) {
         const binding = `server: const { messages: ${messagesObject} } = await loadLocale(locale); client: const ${messagesObject} = i18n.useMessages()`;
         if (options.requireMessagesBinding === 'warn') {
-          warnings.push(sourcePositioner(code)({ file, callee: messagesObject, reason: `rewritten calls reference ${messagesObject}, which this file does not bind yet`, code: 'MISSING_MESSAGES_BINDING', action: `Bind ${messagesObject} in this file (${binding}), or re-run with --messages-import <specifier>.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
+          fileWarnings.push(sourcePositioner(code)({ file, callee: messagesObject, reason: `rewritten calls reference ${messagesObject}, which this file does not bind yet`, code: 'MISSING_MESSAGES_BINDING', action: `Bind ${messagesObject} in this file (${binding}), or re-run with --messages-import <specifier>.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
         } else {
           bindingSkips.push(sourcePositioner(code)({ file, callee: messagesObject, reason: `rewritten calls would reference ${messagesObject} without a binding in this file; ${replacements} call(s) left unchanged`, code: 'MISSING_MESSAGES_BINDING', action: `Pass --messages-import <specifier>, or bind ${messagesObject} first (${binding}), then re-run the codemod.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
           code = source; replacements = 0; typeImportsMoved = 0;
@@ -2823,12 +2826,24 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
       bindingSkips.push({ file, callee: '(file)', reason: 'file is read-only; its rewrites were not applied', code: 'READ_ONLY_FILE', action: 'Make the file writable (chmod u+w) or migrate its calls manually, then re-run the codemod.' });
       code = source; replacements = 0; typeImportsMoved = 0;
     }
-    const allSkips = [...result.skipped, ...bindingSkips];
+    // Positions name the file as this command leaves it: rewritten after --write, and
+    // otherwise as it was. The last pass reported against the converged revision.
+    const target = options.write && code !== source ? code : source, positionTarget = sourcePositioner(target);
+    let toSource: ((offset: number) => number) | undefined;
+    const place = (from: string) => (item: CodemodSkip): CodemodSkip => {
+      if (typeof item.offset !== 'number') return item;
+      if (from === target) return positionTarget(item);
+      toSource ??= revisionsMapper(history);
+      const { line: _line, column: _column, ...rest } = item;
+      return positionTarget({ ...rest, offset: toSource(item.offset) });
+    };
+    warnings.push(...fileWarnings.map(place(converged)));
+    const allSkips = [...result.skipped, ...bindingSkips].map(place(converged));
     result = { ...result, code, replacements, typeImportsMoved, skipped: allSkips, compatibility: compatibilityPlan(replacements, allSkips,
       allSkips.length ? [file] : [], [{ file, directRewrites: replacements, fallbackRequired: allSkips.length > 0, fallbackCalls: allSkips }]) };
     const normalized = normalizeFormat(options.format);
     const residueFormats = normalized === 'auto' ? concreteFormats : [normalized as Exclude<CodemodFormat, 'auto'>];
-    const residue = residueFormats.flatMap(activeFormat => incumbentImportDiagnostics(result.code, activeFormat));
+    const residue = residueFormats.flatMap(activeFormat => incumbentImportDiagnostics(result.code, activeFormat)).map(place(result.code));
     const fileSkips = actionableSkips([...result.skipped, ...residue]);
     skipped.push(...fileSkips.map(item => ({ ...item, file })));
     // Import residue is an integration audit, not a legacy call fallback. It
