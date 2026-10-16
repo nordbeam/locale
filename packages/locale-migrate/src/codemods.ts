@@ -2049,14 +2049,14 @@ function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten
     if (parent.type === 'ImportDeclaration') return false;
     return true;
   };
-  const unboundMessageScopes: CleanupScope[] = [];
+  const unboundMessageScopes: CleanupScope[] = [], unboundMessageReferences: Array<{ scope: CleanupScope; node: AstNode }> = [];
   const collectReferences = (node: AstNode, scope: CleanupScope, parent?: AstNode): void => {
     if (node.type === 'Program') scope = scopeByNode.get(node) ?? scope;
     else if (node.type === 'BlockStatement' || node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression' || node.type === 'CatchClause') scope = scopeByNode.get(node) ?? scope;
     if (node.type === 'Identifier' && !declarationIds.has(node) && isReference(node, parent)) {
       const record = resolveBinding(scope, identifierName(node)!);
       if (record) record.references.push(node);
-      else if (messagesBinding && identifierName(node) === messagesBinding.local) unboundMessageScopes.push(scope);
+      else if (messagesBinding && identifierName(node) === messagesBinding.local) { unboundMessageScopes.push(scope); unboundMessageReferences.push({ scope, node }); }
     }
     // JSX component names are JSXIdentifier nodes, not Identifier nodes. An
     // uppercase tag (or the root of a member tag such as <Foo.Bar>) keeps an
@@ -2155,6 +2155,65 @@ function cleanupFormatterBindings(text: string, format: CodemodFormat, rewritten
     const end = text[declaration.end!] === ';' ? declaration.end! + 1 : declaration.end!;
     const lineStart = text.lastIndexOf('\n', declaration.start! - 1) + 1, indent = text.slice(lineStart, declaration.start!);
     removals.push({ start: end, end, text: `\n${/^[ \t]*$/.test(indent) ? indent : ''}const ${messagesBinding!.local} = ${messagesBinding!.hook}();` });
+  }
+  // A component that only rendered elements (Lingui's <Trans>) has no formatter declaration
+  // to become the binding, so the nearest enclosing component or hook gets the hook call as its
+  // first statement; an arrow with an expression body gets a block. A component or hook is a
+  // synchronous function named like one (Name, useName), directly or as the memo/forwardRef
+  // callback a declarator names. References outside one stay unbound (MISSING_MESSAGES_BINDING).
+  const wrapperNames = new Set(['memo', 'forwardRef']);
+  const isWrapperCall = (node: AstNode | undefined): boolean => {
+    if (node?.type !== 'CallExpression') return false;
+    const callee = child(node, 'callee');
+    const name = callee?.type === 'MemberExpression' && !callee.computed ? identifierName(child(callee, 'property')) : identifierName(callee);
+    return name !== undefined && wrapperNames.has(name);
+  };
+  const componentName = (fn: AstNode): string | undefined => {
+    const own = identifierName(child(fn, 'id'));
+    if (fn.type === 'FunctionDeclaration') return own;
+    let parent = parentByNode.get(fn);
+    while (isWrapperCall(parent)) parent = parentByNode.get(parent!);
+    const id = parent?.type === 'VariableDeclarator' ? child(parent, 'id') : undefined;
+    return id?.type === 'Identifier' ? identifierName(id) : own;
+  };
+  const enclosingComponent = (scope: CleanupScope): CleanupScope | undefined => {
+    for (let current: CleanupScope | undefined = scope; current; current = current.parent) {
+      const node = current.node;
+      if (node.type !== 'FunctionDeclaration' && node.type !== 'FunctionExpression' && node.type !== 'ArrowFunctionExpression') continue;
+      if (!/^(?:[A-Z]|use[A-Z0-9])/.test(componentName(node) ?? '')) continue;
+      return node.async || node.generator ? undefined : current;
+    }
+    return undefined;
+  };
+  const lineIndent = (offset: number): string => {
+    const lineStart = text.lastIndexOf('\n', offset - 1) + 1;
+    return /^[ \t]*/.exec(text.slice(lineStart))![0];
+  };
+  // Only references in the body: a parameter default (`label = t\`Save\``) cannot see a body binding.
+  if (messagesBinding) for (const { scope, node } of unboundMessageReferences) {
+    if (hookScopes.some(bound => encloses(bound, scope))) continue;
+    const component = enclosingComponent(scope);
+    const body = component && child(component.node, 'body');
+    if (!component || !body || node.start! < body.start! || node.end! > body.end!) continue;
+    const binding = `const ${messagesBinding.local} = ${messagesBinding.hook}();`;
+    if (body.type === 'BlockStatement') {
+      const directives = children(body, 'directives'), first = children(body, 'body')[0];
+      const anchor = directives.length ? directives[directives.length - 1]!.end! : body.start! + 1;
+      removals.push({ start: anchor, end: anchor, text: `\n${first ? lineIndent(first.start!) : `${lineIndent(component.node.start!)}  `}${binding}` });
+      hookScopes.push(scopeByNode.get(body) ?? component);
+      continue;
+    }
+    // Babel leaves the parentheses of `() => (<Trans … />)` out of the body's range.
+    const extra = body.extra as { parenthesized?: boolean; parenStart?: number } | undefined;
+    let start = body.start!, end = body.end!;
+    if (extra?.parenthesized && typeof extra.parenStart === 'number') {
+      const close = text.indexOf(')', end);
+      if (close < 0 || text.slice(end, close).trim()) continue;
+      start = extra.parenStart; end = close + 1;
+    }
+    const indent = lineIndent(component.node.start!);
+    removals.push({ start, end: start, text: `{\n${indent}  ${binding}\n${indent}  return ` }, { start: end, end, text: `;\n${indent}}` });
+    hookScopes.push(component);
   }
   for (const declarator of fullDeclarations) {
     const declaration = parentByNode.get(declarator)!;
@@ -2969,9 +3028,9 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
       if (before && after && after.unbound > before.unbound) {
         const binding = `server: const { messages: ${messagesObject} } = await loadLocale(locale); client: const ${messagesObject} = i18n.useMessages()`;
         if (options.requireMessagesBinding === 'warn') {
-          fileWarnings.push(sourcePositioner(code)({ file, callee: messagesObject, reason: `rewritten calls reference ${messagesObject}, which this file does not bind yet`, code: 'MISSING_MESSAGES_BINDING', action: `Bind ${messagesObject} in this file (${binding}), or re-run with --messages-import <specifier>.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
+          fileWarnings.push(sourcePositioner(code)({ file, callee: messagesObject, reason: options.messagesHook ? `rewritten calls reference ${messagesObject} outside any component or hook (module scope, a class, or an async server component), where ${options.messagesHook}() cannot bind it` : `rewritten calls reference ${messagesObject}, which this file does not bind yet`, code: 'MISSING_MESSAGES_BINDING', action: options.messagesHook ? `Bind ${messagesObject} where these calls run (${binding}), or pass it in from a component.` : `Bind ${messagesObject} in this file (${binding}), or re-run with --messages-import <specifier>.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
         } else {
-          bindingSkips.push(sourcePositioner(code)({ file, callee: messagesObject, reason: `rewritten calls would reference ${messagesObject} without a binding in this file; ${replacements} call(s) left unchanged`, code: 'MISSING_MESSAGES_BINDING', action: `Pass --messages-import <specifier>, or bind ${messagesObject} first (${binding}), then re-run the codemod.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
+          bindingSkips.push(sourcePositioner(code)({ file, callee: messagesObject, reason: options.messagesHook ? `rewritten calls would reference ${messagesObject} outside any component or hook, where ${options.messagesHook}() cannot bind it; ${replacements} call(s) left unchanged` : `rewritten calls would reference ${messagesObject} without a binding in this file; ${replacements} call(s) left unchanged`, code: 'MISSING_MESSAGES_BINDING', action: options.messagesHook ? `Bind ${messagesObject} where these calls run (${binding}), or pass it in from a component, then re-run the codemod.` : `Pass --messages-import <specifier>, or bind ${messagesObject} first (${binding}), then re-run the codemod.`, ...(after.first !== undefined ? { offset: after.first } : {}) }));
           code = source; replacements = 0; typeImportsMoved = 0;
         }
       }

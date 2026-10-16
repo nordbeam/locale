@@ -763,7 +763,7 @@ Severity: warning.
 
 A rewritten source file calls the generated messages object without binding it first.
 
-**Fix:** Import or bind the messages object in that file, or pass --messages-import to codemod, with --messages-hook when that module exports a hook such as useMessages.
+**Fix:** Import or bind the messages object in that file, or pass --messages-import to codemod, with --messages-hook when that module exports a hook such as useMessages. With --messages-hook, what is left runs where a hook cannot (module scope, a plain function, a class, an async server component, a parameter default): bind the messages object there, or pass it in from a component.
 
 ### MISSING_PLURAL_BRANCH
 

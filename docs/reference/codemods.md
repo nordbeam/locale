@@ -108,10 +108,15 @@ and that returns the messages object, such as `useMessages`. A formatter hook wh
 calls were all rewritten, such as `const t = useT()`, becomes `const m = useMessages()`
 in the same place. One that skipped calls (dynamic keys) keep alive stays, and
 `const m = useMessages();` goes on the next line. The hook is imported instead of `m`.
-A scope gets one binding, which covers the functions nested in it. A side-effect import of
-the module (`import '~/i18n'`) becomes the named import. A formatter that arrives as a
-parameter or from `await` has no hook to replace; its calls still reference `m`, and
-`codemod` reports the file as `MISSING_MESSAGES_BINDING`. JavaScript and TypeScript files only.
+A scope gets one binding, which covers the functions nested in it. A component or hook
+with no formatter declaration, such as one that only rendered Lingui's `<Trans>`, gets
+`const m = useMessages();` as its first statement (an arrow with an expression body gets a
+block). A component or hook is a synchronous function named like one (`Name`, `useName`),
+directly or as the `memo`/`forwardRef` callback a declarator names. A side-effect import of
+the module (`import '~/i18n'`) becomes the named import. Calls where a hook cannot run (module
+scope, a plain function, a class, an async server component, a parameter default) and a
+formatter that arrives as a parameter or from `await` still reference `m`, and `codemod`
+reports the file as `MISSING_MESSAGES_BINDING`. JavaScript and TypeScript files only.
 
 `moveTypeImports` is an explicit list of named type-only imports to move to
 `messagesImport`; the CLI equivalent is repeatable `--move-type-import <name>`.

@@ -5,6 +5,29 @@ All notable changes to `@nordbeam/locale`, `nordbeam-locale` and
 [Semantic Versioning](https://semver.org/); before 1.0, minor versions may
 contain breaking changes, and they are called out in this file.
 
+## 0.6.1
+
+No breaking changes. One codemod fix, found migrating a production Lingui
+app; `@nordbeam/locale` and `nordbeam-locale` change only their version.
+
+### @nordbeam/locale-migrate
+
+- **`--messages-hook` binds components that only rendered `<Trans>`.** The
+  hook replaced a formatter declaration (`const { i18n } = useLingui()`), and
+  `<Trans>` needs none, so its component was rewritten to `m.id()` with no
+  `m`: with a binding elsewhere in the file, silently, and otherwise with a
+  `MISSING_MESSAGES_BINDING` warning. Such a component or hook now gets
+  `const m = useMessages();` as its first statement (an arrow with an
+  expression body gets a block); a component or hook is a synchronous function
+  named like one, directly or as a `memo`/`forwardRef` callback. Run with
+  `--messages-import @i18n/client --messages-hook useMessages` on the four
+  Lingui apps of the 0.5.0 survey, the files reported for the warning fall
+  from 1,759 to 507, with the same rewrites and skips. The rest run where a
+  hook cannot: module scope, plain functions, classes, async server
+  components and parameter defaults, and the warning's `reason` and `action`
+  now say so instead of suggesting `--messages-import`, which was already
+  passed.
+
 ## 0.6.0
 
 No breaking changes. The source codemod (`@nordbeam/locale-migrate`) converts

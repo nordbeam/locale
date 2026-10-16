@@ -70,6 +70,11 @@ nordbeam-locale init --agent
 - The `MESSAGE_ID_UNRESOLVED` `action` starts with running `lingui extract`.
 - A call with a trailing comma after its last argument is no longer
   `UNSUPPORTED_OPTIONS` ("call has unsupported extra arguments").
+- 0.6.1: with `--messages-hook`, a component or hook with no formatter
+  declaration (one that only rendered `<Trans>`) gets the binding as its first
+  statement, so fewer files are `MISSING_MESSAGES_BINDING`. With a hook, that
+  warning's `reason` and `action` now say the remaining calls run where a hook
+  cannot.
 
 ## Changes in 0.5
 
