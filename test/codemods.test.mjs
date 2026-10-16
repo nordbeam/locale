@@ -131,13 +131,14 @@ test('project codemods converge nested translation calls in one reviewed operati
   assert.equal(await readFile(file, 'utf8'), `import { m } from './i18n.js';\nexport const label=m.outer({value: m.inner()});\n`);
 });
 
-test('rich FormatJS component behavior is reported instead of flattened', () => {
+test('rich FormatJS component behavior becomes rich() in its tagName element instead of being flattened', () => {
   const source = `import { FormattedMessage } from 'react-intl';
 const value = <FormattedMessage id="welcome" tagName="p" values={{name: <strong>{name}</strong>}} />;`;
   const result = codemodSource(source, 'formatjs');
-  assert.equal(result.replacements, 0);
-  assert.equal(result.code, source);
-  assert.ok(result.skipped.some(item => item.reason.includes('rich-component')));
+  assert.equal(result.replacements, 1);
+  assert.deepEqual(result.skipped, []);
+  assert.equal(result.code, `import { rich } from '@nordbeam/locale/react/rich';
+const value = <p>{rich(m.welcome, {name: <strong>{name}</strong>})}</p>;`);
 });
 
 test('plain JSX message components preserve their surrounding expression context', () => {
@@ -152,9 +153,9 @@ test('nested JSX inside component values cannot truncate a component rewrite', (
   const source = `import { FormattedMessage } from 'react-intl';
 <FormattedMessage id="hint" values={{br: <br />, count: 2}} tagName="p" />;`;
   const result = codemodSource(source, 'formatjs');
-  assert.equal(result.replacements, 0);
-  assert.equal(result.code, source);
-  assert.ok(result.skipped.some(item => item.reason.includes('nested JSX')));
+  assert.equal(result.replacements, 1);
+  assert.equal(result.code, `import { rich } from '@nordbeam/locale/react/rich';
+<p>{rich(m.hint, {br: <br />, count: 2})}</p>;`);
 });
 
 test('project codemods preview by default and require write to change files', async t => {
@@ -360,8 +361,8 @@ test('adversarial constructs are either rewritten exactly or diagnosed fail-clos
   const componentAlias = codemodSource(`import {FormattedMessage as Msg} from 'react-intl'; const node=<Msg id="hello"/>;`, 'formatjs');
   assert.match(componentAlias.code, /m\.hello\(\)/);
   const rich = codemodSource(`import {FormattedMessage} from 'react-intl'; <FormattedMessage id="hello" values={{bold:<strong/>}}/>;`, 'formatjs');
-  assert.equal(rich.replacements, 0);
-  assert.ok(rich.skipped.some(item => /rich-component|nested JSX/.test(item.reason)));
+  assert.equal(rich.replacements, 1);
+  assert.match(rich.code, / \{rich\(m\.hello, \{bold:<strong\/>\}\)\};$/);
 
   const nestedDescriptorId = codemodSource(`const intl=useIntl(); intl.formatMessage({meta:{id:'wrong'}, defaultMessage:'Hello'});`, 'formatjs');
   assert.equal(nestedDescriptorId.replacements, 0);

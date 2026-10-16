@@ -6,6 +6,8 @@ import { parse, parseExpression } from '@babel/parser';
 import { discoverConfig } from 'nordbeam-locale/internal/migrate';
 import { createPlan } from 'nordbeam-locale/internal/migrate';
 import type { FilePlan } from 'nordbeam-locale/internal/migrate';
+import { FormatJsSource, formatJsProjectMessages, removeUnusedDescriptors } from './codemod-formatjs.js';
+import type { FormatJsImportedMessages } from './codemod-formatjs.js';
 
 export type CodemodFormat = 'auto' | 'i18next' | 'next-intl' | 'formatjs' | 'lingui'
   | 'vue-i18n' | 'tolgee' | 'next-international' | 'typesafe-i18n'
@@ -125,6 +127,10 @@ export interface CodemodSourceOptions {
   /** Message IDs whose base text has rich tags. A Lingui `<Trans components>` element whose
    * message has none becomes a plain call; by default every one becomes `rich(m.x, …)`. */
   readonly richMessageIds?: readonly string[] | ReadonlySet<string>;
+  /** react-intl descriptor constants this file imports from other modules, by local name
+   * (`import messages from './messages'` → its `defineMessages` table). codemodProject finds
+   * them; alone, codemodSource resolves only the constants the file declares itself. */
+  readonly formatjsMessages?: FormatJsImportedMessages;
   /** Refuse to return a partial migration when any recognized construct is
    * unresolved. Preview callers normally leave this false to inspect skips. */
   readonly strict?: boolean;
@@ -1341,6 +1347,8 @@ type JsxContext = {
   sourceIds?: ReadonlyMap<string, string>; allowedIds?: ReadonlySet<string>; renamed: (id: string) => string;
   jsxStarts?: ReadonlySet<number>; jsxChildStarts?: ReadonlySet<number>; jsxStatementStarts?: ReadonlySet<number>; jsxElements?: ReadonlyMap<number, JsxElementBounds>;
   messageComponent?: string; richIds?: ReadonlySet<string>;
+  /** The file's react-intl state; also finds names bound to elements in other formats' values. */
+  formatJs?: FormatJsSource;
 };
 
 function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, root: string, mask: Uint8Array, skipped: CodemodSkip[], context: JsxContext): Replacement[] {
@@ -1371,6 +1379,15 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
       : found;
     if (!mask[match.index!] && !jsxStarts?.has(match.index!)) {
       skipped.push({ callee: /^<([A-Za-z_$][\w$]*)/.exec(match[0])?.[1] ? `<${/^<([A-Za-z_$][\w$]*)/.exec(match[0])![1]}>` : '<message>', reason: 'component range is not provably executable JSX; review this component manually', offset: match.index });
+      continue;
+    }
+    // react-intl: a descriptor spread, element values and tagName (codemod-formatjs.ts). Anything
+    // it leaves (children, an id expression, no id) takes the general path below.
+    const formatJsElement = format === 'formatjs' ? context.formatJs?.element(match[0], { root, access: id => messageAccess(root, id), renamed, ...(allowedIds ? { allowedIds } : {}), expression: expressionContext(match.index!),
+      ...(context.messageComponent !== undefined && (bounds?.owner === 'module' || bounds?.owner === 'function') ? { messageComponent: context.messageComponent } : {}) }) : undefined;
+    if (formatJsElement) {
+      if ('skip' in formatJsElement) skipped.push({ callee: `<${/^<([A-Za-z_$][\w$]*)/.exec(match[0])?.[1] ?? component}>`, reason: formatJsElement.skip.reason, offset: match.index, ...(formatJsElement.skip.code ? { code: formatJsElement.skip.code } : {}) });
+      else result.push({ start: match.index!, end: match.index! + match[0].length, ...(formatJsElement.replacement.rich ? { rich: true } : {}), text: formatJsElement.replacement.text });
       continue;
     }
     const componentName = /^<([A-Za-z_$][\w$]*)/.exec(match[0])?.[1] ?? component;
@@ -1417,6 +1434,8 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
     const tagName = jsxAttribute(match[0], 'tagName');
     if (tagName) { skipped.push({ callee: `<${componentName}>`, reason: 'component tagName changes rendered markup and requires a rich-component migration', offset: match.index }); continue; }
     if (values?.includes('<')) { skipped.push({ callee: `<${componentName}>`, reason: 'component values contain JSX and require a rich-component migration', offset: match.index }); continue; }
+    // `values={{ link }}` with `const link = <a …/>` would print [object Object] from a plain call.
+    if (context.formatJs?.holdsBoundElement(values)) { skipped.push({ callee: `<${componentName}>`, reason: 'component values hold a React element by name and require a rich-component migration', offset: match.index }); continue; }
     const count = format === 'i18next' ? jsxAttribute(match[0], 'count') : undefined;
     if (count) values = values ? `{...(${values}),count:${count}}` : `{count:${count}}`;
     if (format === 'lingui' && jsxAttribute(match[0], 'render') !== undefined) { skipped.push({ callee: `<${componentName}>`, reason: 'component render prop changes rendered markup and requires a rich-component migration', offset: match.index }); continue; }
@@ -2270,6 +2289,8 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   }
   const normalized = normalizeFormat(format);
   const formats = normalized === 'auto' ? concreteFormats : [normalized as Exclude<CodemodFormat, 'auto'>];
+  // react-intl descriptor constants, element values and tagName (codemod-formatjs.ts).
+  const formatJs = formats.includes('formatjs') ? new FormatJsSource(text, options.formatjsMessages) : undefined;
   const native = formats.map(activeFormat => ({ activeFormat, bindings: bindings(text, activeFormat, skipped) }));
   // Each custom call belongs to one pass. Under `auto` that is the format that detected
   // the same callee, or else a pass of its own that passes values through unchanged.
@@ -2362,6 +2383,11 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
         ? parsedCallEnds.get(start)! - 1 : closingParenthesis(text, open, mask);
       if (close === undefined) { skipped.push({ callee: binding.callee, reason: 'unclosed call', offset: start }); continue; }
       const args = argumentsOf(text, open, close, mask);
+      // react-intl: `messages.key` from a defineMessages constant reads as its inline descriptor, and
+      // `open ? messages.a : messages.b` as a conditional between ID strings, lowered per branch below.
+      const formatJsReference = binding.kind === 'descriptor' && activeFormat === 'formatjs' && formatJs && args[0] !== undefined && formatJsId(args[0]) === undefined;
+      const formatJsConditional = formatJsReference && !formatJs!.needsRich(args[1]) ? formatJs!.conditionalIds(args[0]!) : undefined;
+      if (formatJsReference) args[0] = formatJs!.inlineDescriptor(args[0]!) ?? formatJsConditional ?? args[0]!;
       const descriptor = activeFormat === 'lingui' && binding.kind !== 'descriptor' && staticString(args[0] ?? '') === undefined ? linguiDescriptor(args[0] ?? '') : undefined;
       const localId = binding.kind === 'descriptor' ? formatJsId(args[0] ?? '')
         : activeFormat === 'lingui' ? staticString(args[0] ?? '') ?? descriptor?.id
@@ -2376,7 +2402,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
           : activeFormat === 'svelte-i18n'
             ? svelteI18nValues(args[1])
             : { values: args[1]?.trim() };
-        const canLowerConditional = binding.kind !== 'descriptor' && args.length <= 2
+        const canLowerConditional = (binding.kind !== 'descriptor' || formatJsConditional !== undefined) && args.length <= 2
           && !(activeFormat === 'i18next' && args[1] && staticString(args[1]))
           && !(activeFormat === 'i18next' && args[1] && /\bns\s*:/.test(args[1]) && !/\bns\s*:\s*(['"])[^'"\\]*\1/.test(args[1]))
           && !conditionalValues.unsupported;
@@ -2423,7 +2449,9 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       }
       const values = migratedValues.values;
       const key = `${start}:${close}`; if (occupied.has(key)) continue; occupied.add(key);
-      replacements.push({ start, end: close + 1, text: `${messageAccess(root, id)}(${values || ''})` });
+      // react-intl values holding an element or a rich renderer render through rich().
+      const richValues = activeFormat === 'formatjs' && !!formatJs?.needsRich(values);
+      replacements.push({ start, end: close + 1, ...(richValues ? { rich: true } : {}), text: richValues ? `rich(${messageAccess(root, id)}, ${values})` : `${messageAccess(root, id)}(${values || ''})` });
       pattern.lastIndex = close + 1;
     }
   }
@@ -2444,6 +2472,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   }
   const jsxContext: JsxContext = { sourceIds, allowedIds, renamed, jsxStarts: parsedCalls?.jsxStarts, jsxChildStarts: parsedCalls?.jsxChildStarts, jsxStatementStarts: parsedCalls?.jsxExpressionStatementStarts, jsxElements: parsedCalls?.jsxElements,
     messageComponent: options.messageComponent, ...(options.richMessageIds ? { richIds: new Set(options.richMessageIds) } : {}) };
+  jsxContext.formatJs = formatJs ?? new FormatJsSource(text);
   for (const activeFormat of formats) for (const replacement of jsxReplacements(text, activeFormat, root, mask, skipped, jsxContext)) {
     const key = `${replacement.start}:${replacement.end - 1}`; if (!occupied.has(key)) { occupied.add(key); replacements.push(replacement); }
   }
@@ -2556,6 +2585,11 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       code = text;
       appliedReplacements = [];
     }
+  }
+  // react-intl: drop the defineMessages constants and descriptor imports the rewrite stopped reading.
+  if (appliedReplacements.length && formatJs && scriptLike) {
+    const cleaned = removeUnusedDescriptors(text, code, new Set(options.formatjsMessages?.keys() ?? []));
+    if (cleaned !== code) try { validateCodemodOutput(cleaned, options.filename); code = cleaned; } catch { /* keep them */ }
   }
   if (appliedReplacements.some(replacement => replacement.rich)) {
     try { code = insertMessagesImport(code, 'rich', '@nordbeam/locale/react/rich'); }
@@ -2781,6 +2815,8 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
   const generatedDirectory = await configuredOutputDirectory(root);
   const candidates = (await sourceFiles(sourceDir)).filter(file => file !== generatedDirectory && !file.startsWith(`${generatedDirectory}/`));
   const files: string[] = [], changed: CodemodChange[] = [], skipped: CodemodSkip[] = [], warnings: CodemodSkip[] = [], fallbackCalls: CodemodSkip[] = [], compatibilityFiles: CodemodCompatibilityFile[] = [], outputs = new Map<string, string>();
+  // react-intl descriptor constants a file imports from another module of the project.
+  const formatJsImports = ['auto', 'formatjs'].includes(normalizeFormat(options.format)) ? await formatJsProjectMessages(candidates) : undefined;
   for (const file of candidates) {
     const source = await readFile(file, 'utf8');
     if (source.slice(0, 512).includes(generatedHeaderMarker)) continue;
@@ -2792,7 +2828,7 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
     // every replacement uses offsets from one revision. At project level we
     // can safely reparse the exact output and converge in one reviewed run.
     for (;;) {
-      result = codemodSource(code, options.format, { messagesObject: options.messagesObject, messagesImport: options.messagesImport, messagesHook: options.messagesHook, moveTypeImports: options.moveTypeImports, filename: file, customCalls: options.customCalls, messageIds: options.messageIds, messageIdBySource: sourceIds, messageIdRenames: options.messageIdRenames, richMessageIds: options.richMessageIds });
+      result = codemodSource(code, options.format, { messagesObject: options.messagesObject, messagesImport: options.messagesImport, messagesHook: options.messagesHook, moveTypeImports: options.moveTypeImports, filename: file, customCalls: options.customCalls, messageIds: options.messageIds, messageIdBySource: sourceIds, messageIdRenames: options.messageIdRenames, richMessageIds: options.richMessageIds, formatjsMessages: formatJsImports?.get(file) });
       replacements += result.replacements;
       typeImportsMoved += result.typeImportsMoved;
       if (result.code === code) break;
