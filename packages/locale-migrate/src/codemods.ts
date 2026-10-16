@@ -995,7 +995,7 @@ function actionableSkip(item: CodemodSkip): CodemodSkip {
     action = 'Add the message to the base catalog or correct the key to an existing generated ID, then re-run the codemod.';
   } else if (/source-to-id mapping/.test(reason)) {
     code = 'MESSAGE_ID_UNRESOLVED';
-    action = 'Add the message to the base catalog or provide an unambiguous source-to-ID map, then re-run the codemod.';
+    action = 'Add the message to the base catalog, or pass --message-id-map with a JSON object from each source text to its message ID, then re-run the codemod.';
   } else if (/did not parse|unclosed/.test(reason)) {
     code = 'SOURCE_PARSE_ERROR';
     action = 'Repair the source syntax first; the codemod intentionally made no changes at this boundary.';

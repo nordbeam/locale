@@ -37,7 +37,7 @@ export const optionHelp: Readonly<Record<string, readonly [value: string, text: 
   'messages-import': ['<specifier>', 'module that provides the messages import'],
   'messages-hook': ['<name>', 'hook from --messages-import that returns the messages object; replaces dead formatter hooks such as const t = useT()'],
   'move-type-import': ['<Type>', 'move this type import to --messages-import (repeatable)'],
-  'message-id-map': ['<file>', 'JSON map from source file to message ID prefix'],
+  'message-id-map': ['<file>', 'JSON object from source text to message ID, for source-text macros such as Lingui t`…` and <Trans>'],
   'custom-call': ['<callee[:namespace]>', 'treat this custom call as a message call (repeatable)'],
   'initial-locale-expression': ['<expr>', 'expression that yields the initial locale in migrated code'],
   write: ['', 'apply changes instead of previewing them'],

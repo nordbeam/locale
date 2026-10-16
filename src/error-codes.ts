@@ -209,7 +209,7 @@ const definitions: Record<string, [explanation: string, fix: string, exitCode?: 
   DYNAMIC_TEMPLATE_KEY: ['The template-literal key is dynamic, so its message ID cannot be known statically.', 'Use a literal key, or migrate the call by hand.'],
   INCUMBENT_RUNTIME_IMPORT: ['The file still imports the previous i18n runtime.', 'Remove the old runtime import after its calls are migrated.'],
   MANUAL_REVIEW: ['A construct was skipped and needs human review.', 'Migrate the reported call by hand, then run check.'],
-  MESSAGE_ID_UNRESOLVED: ['The message ID of a call could not be resolved from the source.', 'Pass a literal key, or map the source file with --message-id-map.'],
+  MESSAGE_ID_UNRESOLVED: ['The message ID of a call could not be resolved from the source.', 'Pass a literal key, or give --message-id-map a JSON object from each source text to its message ID ({"Hello {name}": "home.greeting"}); Lingui 4 and 5 projects that use source text as IDs need one.'],
   NESTED_TRANSLATION_CALL: ['A translation call is nested inside another call that the rewriter cannot handle.', 'Move the inner call into a variable, then migrate it by hand.'],
   READ_ONLY_FILE: ['The source file is read-only, so its rewrites were not applied.', 'Make the file writable, then run codemod again.'],
   RICH_MESSAGE: ['The message uses rich-text markup that codemod does not convert.', 'Migrate the rich-text call by hand using Nordbeam slots.'],

@@ -587,7 +587,7 @@ Severity: warning.
 
 The message ID of a call could not be resolved from the source.
 
-**Fix:** Pass a literal key, or map the source file with --message-id-map.
+**Fix:** Pass a literal key, or give --message-id-map a JSON object from each source text to its message ID ({"Hello {name}": "home.greeting"}); Lingui 4 and 5 projects that use source text as IDs need one.
 
 ### MESSAGE_NOT_FOUND
 
