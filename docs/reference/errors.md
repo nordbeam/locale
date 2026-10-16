@@ -1173,6 +1173,14 @@ A translation adds a select branch that the base message does not define.
 
 **Fix:** Remove the branch, or add it to the base message if every locale needs it.
 
+### UNBOUND_TRANSLATOR
+
+Severity: warning.
+
+A translation call gets its translator from a function parameter, component props (an HOC such as withTranslation or injectIntl) or a local value, not a hook the codemod binds, so it was not rewritten.
+
+**Fix:** Pass the messages object or the message functions to that code instead of the translator, or bind the translation hook in the component, then run codemod again. Name a wrapper hook with --custom-call.
+
 ### UNSUPPORTED_NAMESPACE_SYNTAX
 
 Severity: warning.

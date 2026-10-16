@@ -6,6 +6,7 @@ import { parse, parseExpression } from '@babel/parser';
 import { discoverConfig } from 'nordbeam-locale/internal/migrate';
 import { createPlan } from 'nordbeam-locale/internal/migrate';
 import { revisionsMapper } from './codemod-positions.js';
+import { unboundTranslatorSkips } from './codemod-unbound.js';
 import type { FilePlan } from 'nordbeam-locale/internal/migrate';
 
 export type CodemodFormat = 'auto' | 'i18next' | 'next-intl' | 'formatjs' | 'lingui'
@@ -2464,6 +2465,9 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       }
     }
   }
+  // A translator from a parameter, props or a local is no binding the codemod rewrites.
+  // Its calls were silent unless the file also bound a hook; report each one.
+  if (scriptLike) skipped.push(...unboundTranslatorSkips(text, formats, replacements, skipped));
   if (options.filename?.endsWith('.html') && (normalized === 'transloco' || normalized === 'ngx-translate')) {
     const pipe = normalized === 'transloco' ? 'transloco' : 'translate';
     const pattern = new RegExp(`(['"])([^'"\\n]+)\\1\\s*\\|\\s*${pipe}\\b`, 'g');
