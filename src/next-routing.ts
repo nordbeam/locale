@@ -44,6 +44,13 @@ export interface NextRouting<Locale extends string = string, Pathnames extends N
   readonly pathnames?: Pathnames;
   /** Hosts that serve a subset of the locales. Requests on other hosts use the routing itself. */
   readonly domains?: readonly NextDomain<Locale>[];
+  /**
+   * The BCP 47 tag of a locale whose code means another language, such as `{ se: 'sv' }`
+   * for a Swedish `se`. Accept-Language matching, `hreflang` and `<html lang>` use the tag;
+   * URLs, cookies and the locale the app sees keep the code. Pass `intlLocales` from the
+   * generated module, which has it when the config maps a locale.
+   */
+  readonly intlLocales?: Readonly<Partial<Record<Locale, string>>>;
 }
 
 export type NextQueryValue = string | number | boolean | null | undefined;
@@ -249,6 +256,11 @@ function build(routing: NextRouting<string, NextPathnamesInput<string>>): Compil
     throw new TypeError('Nordbeam routing requires a non-empty locale list containing defaultLocale.');
   }
   if (new Set(locales).size !== locales.length) throw new TypeError('Nordbeam routing locales must be unique.');
+  for (const [locale, tag] of Object.entries(routing.intlLocales ?? {})) {
+    let canonical: string | undefined;
+    try { canonical = typeof tag === 'string' ? Intl.getCanonicalLocales(tag)[0] : undefined; } catch { /* rejected below */ }
+    if (!canonical || canonical !== tag) throw new TypeError(`Nordbeam routing maps locale '${locale}' to '${String(tag)}', which is not a canonical BCP 47 tag.`);
+  }
   const entries = Object.entries(routing.pathnames ?? {}).map(([source, value]): Entry => {
     const pattern = compilePattern(source);
     if (typeof value === 'object') {
@@ -310,6 +322,12 @@ export function defineRouting<const Locale extends string, const Pathnames exten
 ): NextRouting<Locale, Pathnames> {
   compileRouting(routing);
   return routing;
+}
+
+/** The BCP 47 tag of `locale`: its `intlLocales` entry, or the locale itself. */
+export function intlLocaleOf<Locale extends string>(routing: NextRouting<Locale, any>, locale: Locale): string {
+  const tags = routing.intlLocales as Readonly<Record<string, string>> | undefined;
+  return tags && Object.hasOwn(tags, locale) ? tags[locale]! : locale;
 }
 
 export function localePrefixConfig<Locale extends string>(routing: NextRouting<Locale, any>) {

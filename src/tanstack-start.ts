@@ -10,6 +10,7 @@ import {
   compileRouting,
   domainRouting,
   getPathname as corePathname,
+  intlLocaleOf,
   localePrefixConfig,
   matchLocalePrefix,
   toInternalPathAny,
@@ -122,9 +123,11 @@ function safeDecodeURI(value: string): string {
   catch { return value; }
 }
 
+/** The locale the server rendered: `<html lang>` holds its `intlLocales` tag. */
 function documentLocale<Locale extends string>(routing: NextRouting<Locale, any>): Locale | undefined {
   const lang = (globalThis as unknown as { readonly document?: { readonly documentElement: { readonly lang: string } } }).document?.documentElement.lang;
-  return lang && routing.locales.includes(lang as Locale) ? lang as Locale : undefined;
+  if (!lang) return undefined;
+  return routing.locales.find(locale => intlLocaleOf(routing, locale) === lang) ?? (routing.locales.includes(lang as Locale) ? lang as Locale : undefined);
 }
 
 function documentCookie(): { get: () => string; set: (value: string) => void } | undefined {
@@ -560,8 +563,9 @@ export function createTanStackStartI18n<const Locale extends string, Messages>(o
    * The attributes for `<html>`, for the root `shellComponent`: `lang`, `dir`, and on a
    * page of a scope, the scope, which tells the browser which catalog the page needs.
    */
-  function useHtmlAttributes(): { readonly lang: Locale; readonly dir: 'ltr' | 'rtl'; readonly 'data-nordbeam-locale-scope'?: string } {
-    const lang = useCurrentLocale();
+  function useHtmlAttributes(): { readonly lang: string; readonly dir: 'ltr' | 'rtl'; readonly 'data-nordbeam-locale-scope'?: string } {
+    // `lang` is the locale's BCP 47 tag, for the browser, screen readers and search engines.
+    const lang = intlLocaleOf(core, useCurrentLocale());
     const scope = useRouteScope();
     return scope === undefined ? { lang, dir: getLocaleDirection(lang) } : { lang, dir: getLocaleDirection(lang), [scopeAttribute]: scope };
   }

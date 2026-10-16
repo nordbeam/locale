@@ -42,6 +42,7 @@ export const configSchema: JsonSchema = {
     missing: { enum: ['fallback', 'error'], description: 'Whether missing translations fall back or fail generation.' },
     development: { type: 'boolean', description: 'Include helpful runtime argument checks in generated functions.' },
     timeZone: { type: 'string', minLength: 1 },
+    intlLocales: { type: 'object', additionalProperties: { type: 'string', minLength: 1 }, description: 'The BCP 47 tag that Intl formats a locale with, by locale code, for a code that means another language to Intl. { "se": "sv" } keeps the se catalog and formats it as Swedish.' },
     artifacts: { enum: ['typed', 'runtime', 'loader', 'loader-typed'] },
     includeSources: { anyOf: [{ enum: ['rich', 'all'] }, { type: 'array', items: { type: 'string', minLength: 1 } }], description: 'Retain original ICU source for compatibility renderers: rich/tag messages, every message, or exact message IDs.' },
     shareLiterals: { type: 'boolean', description: 'Opt into a shared plain-literal module for cold loader and loader-typed artifacts. Disabled by default to minimize first-load dependency edges.' },
@@ -72,10 +73,20 @@ export const configSchema: JsonSchema = {
             properties: {
               modules: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
               exclude: { type: 'array', items: { type: 'string', minLength: 1 } },
+              dynamicImports: { type: 'boolean', description: 'false stops the crawl at dynamic import() calls, for code split off behind a boundary that loads the full catalog. Default true.' },
               messages: { type: 'array', items: { type: 'string', minLength: 1 } },
             },
           },
         ],
+      },
+    },
+    arguments: {
+      type: 'object',
+      description: 'Arguments a message takes beyond those its base text uses, by message ID, so translations may use them. Each is part of the message type in every locale.',
+      additionalProperties: {
+        type: 'object',
+        minProperties: 1,
+        additionalProperties: { enum: ['value', 'number', 'date'] },
       },
     },
     cache: {

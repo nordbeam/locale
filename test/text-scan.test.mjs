@@ -177,6 +177,98 @@ export function save() {
   assert.ok(result.learned.some(sink => sink.sink === 'call:notify#0' && sink.messages >= 3));
 });
 
+test('Lingui, react-intl and i18next messages and their default text are localized, before any migration', async t => {
+  const root = await project(t, {
+    'src/toast.ts': 'export function toast(options) {}\n',
+    'src/components/Lingui.tsx': `import { toast } from '../toast';
+const _t = (message: string) => ({ id: message, message });
+import { Trans, Plural, useLingui } from '@lingui/react';
+import { t, msg, defineMessage, plural } from '@lingui/macro';
+import { i18n } from '@lingui/core';
+
+const LABELS = {
+  yoga: { id: 'taxonomy.yoga', message: 'Yoga classes' },
+  pilates: defineMessage({ id: 'taxonomy.pilates', message: 'Pilates classes', comment: 'Filter label' }),
+};
+const greeting = msg\`Welcome back\`;
+
+export function Lingui({ count, name, slug }) {
+  const { i18n: local, _ } = useLingui();
+  toast({ id: Date.now(), message: 'Changes saved' });
+  return (
+    <section aria-label={t\`Saved classes\`}>
+      <h1><Trans id="home.heading" message="Your library" /></h1>
+      <Trans>Hello {name}, you have new classes</Trans>
+      <Plural value={count} one="# class" other="# classes" />
+      <p title={local._({ id: 'home.tooltip', message: 'Open the class list' })}>{_(greeting)}</p>
+      <p>{i18n._(LABELS[slug])}</p>
+      <p>{local._(_t('Nothing saved yet.'))}</p>
+      <p>{plural(count, { one: '# video', other: '# videos' })}</p>
+      <p>{t({ id: 'home.empty', message: 'Nothing to watch', comment: 'Shown when the list is empty' })}</p>
+      <p>Not translated at all</p>
+    </section>
+  );
+}
+`,
+    'src/components/LinguiFive.tsx': `import { useLingui, Trans } from '@lingui/react/macro';
+import { msg } from '@lingui/core/macro';
+const title = msg\`Library\`;
+export function Five({ count }) {
+  const { t, i18n } = useLingui();
+  return <div aria-label={t\`Saved items\`}><h2>{i18n._(title)}</h2><Trans>You have {count} items</Trans><p>Plain words here</p></div>;
+}
+`,
+    'src/components/Cart.tsx': `import { FormattedMessage, defineMessages, useIntl } from 'react-intl';
+const messages = defineMessages({ title: { id: 'cart.title', defaultMessage: 'Your cart', description: 'Cart page heading' } });
+export function Cart({ count }) {
+  const intl = useIntl();
+  const { formatMessage } = useIntl();
+  return (
+    <div>
+      <h1>{intl.formatMessage(messages.title)}</h1>
+      <input placeholder={formatMessage({ id: 'cart.search', defaultMessage: 'Search the cart' })} />
+      <FormattedMessage id="cart.count" defaultMessage="{count, plural, one {# item} other {# items}}" values={{ count }} />
+      <button>Checkout now</button>
+    </div>
+  );
+}
+`,
+    'src/components/Account.tsx': `import { useTranslation, Trans } from 'react-i18next';
+import i18next from 'i18next';
+export function Account({ user }) {
+  const { t } = useTranslation();
+  const [translate] = useTranslation('settings');
+  return (
+    <div>
+      <h1>{t('account.title', 'Your account')}</h1>
+      <p>{t('account.greeting', { defaultValue: 'Hello {{name}}', name: user.name })}</p>
+      <p title={translate('settings.hint', 'Change your settings')}>{i18next.t('account.footer')}</p>
+      <Trans i18nKey="account.terms" defaults="Read the <0>terms</0>" components={[<a href="/terms" />]} />
+      <span>Edit account</span>
+    </div>
+  );
+}
+`,
+    // A module of copy that the library reads elsewhere: key-shaped IDs with their default text.
+    'src/components/copy.ts': `export const TEAM_LABELS = {
+  sweden: { id: 'team.sweden', message: 'Team Sweden' },
+  norway: { id: 'team.norway', message: 'Team Norway' },
+};
+export const NOTICE = { id: 'not a key', message: 'Maintenance tonight' };
+`,
+  });
+  const result = await scan(root);
+  assert.deepEqual(texts(result, 'Lingui.tsx'), ['Changes saved', 'Not translated at all']);
+  assert.deepEqual(texts(result, 'LinguiFive.tsx'), ['Plain words here']);
+  assert.deepEqual(texts(result, 'Cart.tsx'), ['Checkout now']);
+  assert.deepEqual(texts(result, 'Account.tsx'), ['Edit account']);
+  assert.deepEqual(texts(result, 'copy.ts'), ['Maintenance tonight']);
+  // Files that use a library count as localized, so their remaining text is the likeliest oversight.
+  for (const file of ['Lingui.tsx', 'LinguiFive.tsx', 'Cart.tsx', 'Account.tsx']) {
+    assert.deepEqual([...new Set(result.findings.filter(finding => finding.file.endsWith(file)).map(finding => finding.context))], ['mixed'], file);
+  }
+});
+
 test('Vue templates and Svelte components are scanned like JSX', async t => {
   const root = await project(t, {
     'src/components/Card.vue': `<template>

@@ -14,7 +14,8 @@ import { createClientI18n, createReactI18n } from '@nordbeam/locale/react';
   `Provider` reads them the next time it renders, without suspending.
 - `createClientI18n(loadLocale)` — state-owning provider, hooks, preload, and
   locale switching for browser apps.
-- `rich` — re-export of the server-safe rich renderer.
+- `rich` — re-export of the server-safe rich renderer. Plain arguments
+  accept React elements; see [rich](react-rich.md).
 
 Keep factories stable at module scope for application-wide client state. See
 the [locale switcher recipe](../COOKBOOK.md#locale-switcher).

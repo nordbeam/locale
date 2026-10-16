@@ -33,7 +33,8 @@ export const path: string = i18n.getPathname({ to: '/blog/$slug', params: { slug
 export const loaded = i18n.load('de').then(value => value.messages.greeting({ name: 'Ada' }));
 export const typed: string = i18n.useMessages().greeting({ name: 'Ada' });
 export const current: 'en' | 'de' = i18n.useLocale();
-export const html: { readonly lang: 'en' | 'de'; readonly dir: 'ltr' | 'rtl' } = i18n.useHtmlAttributes();
+// `lang` is the BCP 47 tag, which `intlLocales` can set apart from the locale code.
+export const html: { readonly lang: string; readonly dir: 'ltr' | 'rtl' } = i18n.useHtmlAttributes();
 export const resolved: Promise<{ locale: 'en' | 'de' }> = i18n.beforeLoad({ location: { publicHref: '/de' }, context: {} });
 export const context: TanStackStartRouterContext<'en' | 'de'> = i18n.routerOptions().context;
 export const hydrate: () => Promise<void> = i18n.routerOptions().hydrate;

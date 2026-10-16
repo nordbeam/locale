@@ -91,11 +91,50 @@ and ARB descriptions) to a new [notes file](GUIDE.md#notes-about-messages);
 without it they are reported as `MIGRATION_METADATA_DROPPED`. Like `--out`, it
 never replaces an existing file.
 
-Additional formats are `lingui`, `tolgee`, `arb`, `yaml`, `android-xml`,
+Additional formats are `lingui`, `lingui-po`, `tolgee`, `arb`, `yaml`, `android-xml`,
 `apple-strings`, `apple-xcstrings`, `po`, `pot`, `mo`, `json-gettext`, and `module`.
 Android and Apple printf placeholders become named ICU arguments with a review
 warning. Multi-locale Tolgee and Apple exports require `--locale` when the
 source locale cannot be inferred safely.
+
+`lingui-po` reads a PO catalog that Lingui 3 wrote; a `po` file whose header has
+`X-Generator: @lingui/cli` is read the same way. Lingui reads ICU a little
+differently from Nordbeam, so each message is decoded as Lingui reads it and
+written again so that it renders the same text:
+
+- Numbered tags `<0>…</0>` become `<tag0>…</tag0>` for `rich()`. `<0/>` becomes an
+  empty `<tag0></tag0>`, which renders the component as written, as `<Trans>` did.
+- Other HTML, such as `<br/>` or `<a href="…">`, stays text. A run of adjacent tags
+  is one quoted literal: `One<br/><br/>Two` becomes `One'<br/><br/>'Two`, never
+  `'<br/>''<br/>'`, which would render an apostrophe between the tags.
+- An apostrophe that Lingui read as text stays text: `Users'<0>…</0>` becomes
+  `Users''<tag0>…</tag0>`.
+- Lingui trims the rendered text of a message with arguments, so the migration
+  trims it too and reports `LINGUI_WHITESPACE_TRIMMED`. A message without
+  arguments keeps its spaces, as in Lingui.
+- Obsolete `#~` entries migrate, because Lingui 3 compiles and renders them
+  (`LINGUI_OBSOLETE_INCLUDED`).
+- Lines with unescaped quotes are read as Lingui reads them
+  (`LINGUI_PO_QUOTES`).
+- In the source locale, an empty `msgstr` takes its ID, which is what Lingui
+  rendered (`LINGUI_SOURCE_ID_TEXT`). `migrate-project` knows the source locale.
+
+Each converted message is then read back, and its text is compared with the
+source once tags and arguments are normalized. A message that reads differently,
+for example because of a lost apostrophe or dropped text, is reported as
+`MIGRATION_TEXT_CHANGED` with its ID.
+
+A nested catalog key is either a message or a namespace, never both, and it is
+never empty. IDs that break this rule are renamed and reported once as
+`MIGRATION_ID_RENAMED`, which carries the `renamed` map:
+
+- `toast` next to `toast.action` becomes `toast.message`;
+- the sentence ID `Try again later.` loses its empty last segment and becomes
+  `Try again later`.
+
+A warning that concerns many messages comes once per code and catalog, with a
+`count` and the `messageIds`. Dotted IDs, dropped metadata, skipped fuzzy or
+untranslated entries and the Lingui warnings above all work this way.
 
 Migration never rewrites application source calls. Namespace resolution,
 interpolation escaping, custom plural options, and FormatJS descriptions can
@@ -125,14 +164,62 @@ message contract, checks destination ownership, previews source rewrites, and
 reports the remaining provider/import work. It creates nothing unless
 `--write` is present.
 
-The source format controls the codemod. Its catalog format is inferred for
-i18next and FormatJS, with ICU/next-intl JSON as the default for all other
-source libraries (`vue-i18n` and `nuxt-i18n` use the `vue-i18n` converter). When those differ, use `--catalog-format` explicitly. New
+The source format controls the codemod. `--catalog-format` names the format of
+the legacy catalogs that are read, not of the catalogs that are written, which
+are always Nordbeam's. Without it, each file's extension decides (`.po`, `.arb`,
+`.yaml` and so on). JSON follows the source library: i18next and FormatJS have
+their own converters, `vue-i18n` and `nuxt-i18n` use the `vue-i18n` converter,
+and every other library reads ICU/next-intl JSON. A `.po` file under
+`--format lingui` is read as `lingui-po`. When the inference is wrong, pass
+`--catalog-format` explicitly. New
 catalogs default to `messages-nordbeam`; `--catalogs`, `--base-locale`, and
 `--out-dir` override the generated project layout. `--framework next` creates
 the Next App Router helper/config when absent, while `--framework vite-react`
 creates the Vite plugin config and client store when absent. Existing catalog
 destinations are never replaced.
+
+If a catalog fails to convert, or the converted catalogs break the cross-locale
+message contract, the run fails with `COMMAND_FAILED` and nothing is written.
+Every failing message is reported at once, each with its code, `locale`,
+`messageId` and `file`, for example `MIGRATION_INVALID_ICU` or `UNKNOWN_ARGUMENT`.
+Fix them in a working copy of the legacy catalogs and run again.
+
+### Lingui 3 projects
+
+With `--format lingui`, `--from .` (or the path of a `package.json` or
+`.linguirc`) reads Lingui's configuration and migrates the catalogs it names.
+The catalogs come from `catalogs[0].path` (or the older `localeDir`), with
+`<rootDir>` and `{locale}` filled in, for every locale in `locales` except
+`pseudoLocale`. The `format` decides the extension (`po` or `minimal`/`lingui`
+JSON), and `sourceLocale` is the base locale. A `lingui.config.js` would have
+to run to be read, so instead pass the catalog directory: a `<locale>/messages.po`
+folder layout is found without configuration.
+
+```sh
+npx nordbeam-locale migrate-project --from . --format lingui \
+  --framework vite-react --source-dir src --json
+```
+
+The migration keeps what Lingui rendered:
+
+- IDs are renamed the same way in every locale and in the rewritten calls.
+- A message that only translations hold takes its ID as source-locale text,
+  which is what Lingui rendered there (`LINGUI_SOURCE_ID_TEXT`).
+- A contract error in an obsolete `#~` entry says so in its hint. Deleting that
+  entry is often the fix.
+
+The Vite React integration rewrites `<Trans>` in these cases:
+
+- **Components without `useLingui()`.** A component whose only messages were
+  `<Trans>` elements gets `const m = i18n.useMessages()` at its top.
+- **Elements outside any component.** An element at module scope, in a plain
+  helper or in a class becomes
+  `<LocaleMessage render={(m) => m.title()} />`. The migration declares this small
+  component at the end of the file. The element stays lazy and renders in the
+  current locale, as `<Trans>` did.
+- **Files it cannot bind.** A file whose rewritten messages cannot be bound, for
+  example because it declares its own `m`, is left unchanged and reported as
+  `MISSING_MESSAGES_BINDING`.
 
 ### Framework bindings and providers
 
@@ -210,7 +297,7 @@ single values argument. Static next-intl/i18next namespaces become key prefixes.
 | i18next / react-i18next / next-i18next | `useTranslation` aliases, namespace + `keyPrefix`, default/named `i18next.t`, self-closing `<Trans i18nKey>` |
 | next-intl | `useTranslations`, awaited `getTranslations`, object namespaces; `t.rich` is reported for the separate Nordbeam rich-renderer migration |
 | FormatJS / React Intl | `useIntl().formatMessage`, destructured aliases, injected class calls, self-closing `<FormattedMessage>` |
-| Lingui | `useLingui` `i18n._`/destructured `_`, explicit-ID `<Trans>`, explicit descriptor macros, and source macros when a catalog supplies an unambiguous source-to-ID map |
+| Lingui | `useLingui` `i18n._`/destructured `_` (descriptors keep their `values`, also inside `defineMessage()`), explicit-ID `<Trans>` (`id={'x'}` and finite conditionals such as `id={open ? 'a' : 'b'}` included), `<Trans components={[…]}>` as `rich(m.x, { tag0: … })`, explicit descriptor macros, and source macros when a catalog supplies an unambiguous source-to-ID map |
 | Vue/Nuxt i18n | aliased `t` from `useI18n` |
 | Tolgee | aliased `t` from `useTranslate` |
 | next-international | function or destructured `t` returned by `useI18n` |

@@ -125,6 +125,32 @@ const textAssignment = /^(?:textContent|innerText|title|placeholder|alt|ariaLabe
 // Elements whose content is code, or text an i18n component already owns.
 const opaqueElements = new Set(['code', 'pre', 'kbd', 'samp', 'var', 'script', 'style', 'math', 'Code', 'CodeBlock', 'Kbd', 'Pre', 'Trans', 'Translate', 'FormattedMessage', 'FormattedHTMLMessage']);
 const translatorNames = /^(?:t|tt|tr|translate|formatMessage|\$t|i18n\.t|intl\.formatMessage|i18n\._|_)$/;
+
+/**
+ * i18n libraries whose calls and components hold their own text: Lingui
+ * (`<Trans>`, `t\`…\``, `i18n._({ id, message })`), react-intl (`<FormattedMessage
+ * defaultMessage>`, `intl.formatMessage`) and i18next (`t("key", "Default")`, `<Trans
+ * i18nKey>`). That text is the message's source or default, so a project that has
+ * not migrated yet reads as localized where it uses them.
+ */
+type LibraryRole = 'call' | 'forms' | 'object' | 'hook' | 'element';
+const libraryExports: Readonly<Record<string, Readonly<Record<string, LibraryRole>>>> = {
+  lingui: { t: 'call', msg: 'call', defineMessage: 'call', plural: 'forms', select: 'forms', selectOrdinal: 'forms', i18n: 'object', useLingui: 'hook', Trans: 'element', Plural: 'element', Select: 'element', SelectOrdinal: 'element' },
+  intl: { defineMessage: 'call', defineMessages: 'call', useIntl: 'hook', createIntl: 'hook', FormattedMessage: 'element' },
+  i18next: { t: 'call', default: 'object', i18n: 'object', useTranslation: 'hook', Trans: 'element', Translation: 'element' },
+};
+function libraryOf(source: string): string | undefined {
+  if (/^@lingui\/(?:core|react|macro)(?:\/macro)?$/.test(source)) return 'lingui';
+  if (/^(?:react-intl|@formatjs\/intl)$/.test(source)) return 'intl';
+  if (/^(?:i18next|react-i18next|next-i18next)$/.test(source)) return 'i18next';
+  return;
+}
+/** Methods of a library object that return a message: Lingui `i18n._`, i18next `i18n.t`, react-intl `intl.formatMessage`. */
+const libraryMethod = /^(?:_|t|formatMessage)$/;
+/** The same calls on conventional names, in a file that imports a library: `props.intl.formatMessage`, `this.props.t`. */
+const conventionalLibraryCall = /^(?:(?:[\w$]+\.)*(?:i18n|i18next|intl|props)\.(?:_|t|formatMessage)|t)$/;
+/** Keys of a message descriptor or options object whose strings are the ID, the default text, or notes for translators. */
+const descriptorKey = /^(?:id|message|defaultMessage|description|comment|context|defaultValue(?:_\w+)?|defaults|i18nKey|ns)$/;
 // Collection and string methods: an ID passed to them is data, not a translation.
 const genericMethod = /(?:^|\.)(?:push|unshift|concat|join|includes|indexOf|lastIndexOf|startsWith|endsWith|set|get|has|add|delete|append|replace|replaceAll|split|find|filter|map|some|every|test|match|localeCompare|sort|splice|slice|at|keys|values|entries|assign|from|of|log|warn|error|info|debug)$/;
 
@@ -276,6 +302,9 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
   let functionGroup: Group | undefined;
   let returns: Node[] | undefined;
   let opaque = 0;
+  // Names bound to an i18n library's exports, or to what its hooks return.
+  const libraryNames = new Map<string, LibraryRole>();
+  let libraryFile = false;
 
   // An ignore comment after code covers its own line; one on a line of its own covers the next node.
   // `eslint-disable i18next/no-literal-string` covers everything up to its `eslint-enable`.
@@ -342,11 +371,100 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
     if (group) { if (via) (group.vias ??= []).push(via); else group.localized = true; }
   };
 
+  /** The role of a callee or tag that an i18n library provides: a message call, or plural/select forms. */
+  const libraryCall = (callee: Node | undefined): 'call' | 'forms' | undefined => {
+    callee = unwrap(callee);
+    if (!callee) return;
+    if (callee.type === 'Identifier') {
+      const role = libraryNames.get(callee.name);
+      if (role === 'call' || role === 'forms') return role;
+      return role === undefined && libraryFile && conventionalLibraryCall.test(callee.name) ? 'call' : undefined;
+    }
+    if (callee.type !== 'MemberExpression' || callee.computed || !libraryMethod.test(propertyName(callee.property) ?? '')) return;
+    const object = unwrap(callee.object);
+    if (object?.type === 'Identifier' && libraryNames.get(object.name) === 'object') return 'call';
+    const name = calleeName(callee);
+    return libraryFile && name && conventionalLibraryCall.test(name) ? 'call' : undefined;
+  };
+
+  /** `{ id: "checkout.pay", message: "Pay" }`: a Lingui or FormatJS message descriptor. A computed ID
+   * (`{ id: Date.now(), message }`) is a notification or a record, not a message. */
+  const descriptor = (node: Node): boolean => {
+    let id = false, text = false;
+    for (const property of node.properties) {
+      if (property.type !== 'Property') continue;
+      const key = propertyName(property.key, property.computed), value = unwrap(property.value);
+      if (key === 'id') id = value?.type === 'Literal' && typeof value.value === 'string' || value?.type === 'TemplateLiteral' || value?.type === 'Identifier';
+      else if (key === 'message' || key === 'defaultMessage') text = true;
+    }
+    return id && text;
+  };
+  /** A descriptor outside a call: in a file that imports a library, or with a literal ID that is a catalog
+   * message, key-shaped (`{ id: "team.sweden", message: "Team Sweden" }`) or the text itself (`{ id: "Save", message: "Save" }`). */
+  const standaloneDescriptor = (node: Node): boolean => {
+    if (!descriptor(node)) return false;
+    if (libraryFile) return true;
+    const literal = (key: string): string | undefined => {
+      const property = node.properties.find((item: Node) => item.type === 'Property' && propertyName(item.key, item.computed) === key);
+      const value = unwrap(property?.value);
+      return value?.type === 'Literal' && typeof value.value === 'string' ? value.value : undefined;
+    };
+    const id = literal('id');
+    return id !== undefined && (ids.has(id) || /^[\w-]+(?:\.[\w-]+)+$/.test(id) || id === (literal('message') ?? literal('defaultMessage')));
+  };
+
+  /** Bind what an i18n library hook returns: `const { i18n, _ } = useLingui()`, `const [t] = useTranslation()`, `const intl = useIntl()`. */
+  const bindLibrary = (id: Node, init: Node | undefined): void => {
+    const source = unwrap(init?.type === 'AwaitExpression' ? init.argument : init);
+    if (source?.type !== 'CallExpression') return;
+    const callee = unwrap(source.callee);
+    if (callee?.type !== 'Identifier' || libraryNames.get(callee.name) !== 'hook') return;
+    const role = (key: string | undefined): LibraryRole | undefined => key === undefined ? undefined : libraryMethod.test(key) ? 'call' : /^(?:i18n|intl)$/.test(key) ? 'object' : undefined;
+    if (id.type === 'Identifier') libraryNames.set(id.name, 'object');
+    else if (id.type === 'ObjectPattern') {
+      for (const property of id.properties) {
+        if (property.type !== 'Property') continue;
+        const local = unwrap(property.value)!, name = local.type === 'Identifier' ? local.name : local.type === 'AssignmentPattern' && local.left.type === 'Identifier' ? local.left.name : undefined;
+        const bound = role(propertyName(property.key, property.computed));
+        if (name && bound) libraryNames.set(name, bound);
+      }
+    } else if (id.type === 'ArrayPattern') {
+      // react-i18next: `const [t, i18n] = useTranslation()`.
+      const [first, second] = id.elements;
+      if (first?.type === 'Identifier') libraryNames.set(first.name, 'call');
+      if (second?.type === 'Identifier') libraryNames.set(second.name, 'object');
+    }
+  };
+
+  /** A component that renders a library message: an imported `<Trans>`, `<Plural>` or `<FormattedMessage>`, or any `<Trans i18nKey>`. */
+  const libraryElement = (node: Node): boolean => {
+    const name = jsxName(node.openingElement.name);
+    if (libraryNames.get(name) === 'element') return true;
+    return opaqueElements.has(name) && /^(?:Trans|Translate|FormattedMessage)$/.test(name)
+      && node.openingElement.attributes.some((attribute: Node) => attribute.type === 'JSXAttribute' && /^(?:id|i18nKey|message|defaultMessage)$/.test(attribute.name.name));
+  };
+
+  /** Arguments of a message call are IDs, default text and values: values may still hold text, the rest never does. */
+  const messageArgument = (arg: Node, forms: boolean): void => {
+    const node = unwrap(arg)!;
+    if (node.type === 'Literal') return;
+    if (node.type === 'TemplateLiteral') { for (const expression of node.expressions) visit(expression); return; }
+    if (node.type === 'ObjectExpression') {
+      // `plural(count, { one: "# item", other: "# items" })`: every key is a form of the message.
+      if (forms) { for (const property of node.properties) property.type === 'Property' ? messageArgument(property.value, false) : visit(property); return; }
+      object(node, true);
+      return;
+    }
+    visit(node);
+  };
+
   /** A message reference: '' when certain, the callee name when it depends on the project, undefined otherwise. */
   const localized = (node: Node): string | undefined => {
     node = unwrap(node)!;
     switch (node.type) {
       case 'CallExpression': return call(node);
+      case 'TaggedTemplateExpression': if (libraryCall(node.tag)) { facts.localized++; return ''; } return;
+      case 'ObjectExpression': if (standaloneDescriptor(node)) return ''; return;
       case 'MemberExpression': {
         const chain = memberPath(node);
         if (chain && chain.path.length && (messageNames.has(chain.root) || knownPath(chain.path, chain.root))) {
@@ -358,6 +476,7 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
       case 'Identifier': return localizedVars.get(node.name);
       case 'AwaitExpression': return node.argument ? localized(node.argument) : undefined;
       case 'JSXElement': {
+        if (libraryElement(node)) { facts.localized++; return ''; }
         // <Trans id="…"/> and <FormattedMessage id="…"/> render catalog text.
         for (const attribute of node.openingElement.attributes) {
           if (attribute.type === 'JSXAttribute' && attribute.value?.type === 'Literal' && typeof attribute.value.value === 'string' && ids.has(attribute.value.value)) { facts.localized++; return ''; }
@@ -388,7 +507,11 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
       const prefix = node.quasis[0].value.cooked as string ?? '';
       return prefix.endsWith('.') && namespaces.has(prefix.slice(0, -1));
     }
-    if (node.type === 'ObjectExpression') return node.properties.some((property: Node) => property.type === 'Property' && /^(?:id|key|i18nKey)$/.test(propertyName(property.key, property.computed) ?? '') && knownKey(property.value, 'formatMessage'));
+    if (node.type === 'ObjectExpression') {
+      if (node.properties.some((property: Node) => property.type === 'Property' && /^(?:id|key|i18nKey)$/.test(propertyName(property.key, property.computed) ?? '') && knownKey(property.value, 'formatMessage'))) return true;
+      // `i18n._({ id: "Saved", message: "Saved" })` through a project's own i18n module: a descriptor with a literal ID.
+      return !!callee && translatorNames.test(callee) && descriptor(node) && node.properties.some((property: Node) => property.type === 'Property' && propertyName(property.key, property.computed) === 'id' && unwrap(property.value)?.type === 'Literal');
+    }
     return false;
   };
 
@@ -401,7 +524,9 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
     const callee = unwrap(node.callee)!;
     const name = calleeName(callee);
     const chain = callee.type === 'MemberExpression' ? memberPath(callee) : undefined;
-    if (chain && chain.path.length && (messageNames.has(chain.root) || knownPath(chain.path, chain.root))) {
+    const library = libraryCall(callee);
+    if (library) result = '';
+    else if (chain && chain.path.length && (messageNames.has(chain.root) || knownPath(chain.path, chain.root))) {
       result = '';
       if (chain.bracket) facts.style.bracket++; else facts.style.dotted++;
       if (knownPath(chain.path, chain.root)) { messageNames.add(chain.root); confirmed.add(chain.root); }
@@ -427,8 +552,8 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
     (node as any).__localized = result;
     visit(node.callee);
     const args: Node[] = node.arguments;
-    // A message's or translator's arguments are keys and values, never text of their own.
-    if (result === '') { for (const arg of args) visit(arg); }
+    // A message's or translator's arguments are keys, default text and values, never text of their own.
+    if (result === '') args.forEach((arg, index) => messageArgument(arg, library === 'forms' && index > 0));
     else {
       const sinkName = name ?? (callee.type === 'MemberExpression' && !callee.computed ? `.${callee.property.name}` : undefined);
       aliasCallback(callee, args, () => {
@@ -649,8 +774,14 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
         return;
       }
       case 'TaggedTemplateExpression':
+        // Lingui's t`Hello ${name}` and msg`…` are messages; other tags hold code (css`…`, gql`…`).
+        if (libraryCall(node.tag)) { facts.localized++; evidence(sink, '', group); }
         visit(node.tag);
         for (const expression of node.quasi.expressions) visit(expression);
+        return;
+      case 'ObjectExpression':
+        if (standaloneDescriptor(node)) evidence(sink, '', group);
+        visit(node);
         return;
       default:
         visit(node);
@@ -681,7 +812,10 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
     const opening = node.openingElement;
     const name = jsxName(opening.name);
     const intrinsic = /^[a-z]/.test(name) && !name.includes('.');
-    let skip = opaqueElements.has(name);
+    // A library message component owns its children and props: `<Plural one="# item" other="# items">`.
+    const library = libraryElement(node);
+    if (library) facts.localized++;
+    let skip = library || opaqueElements.has(name);
     let type: string | undefined;
     for (const attribute of opening.attributes) {
       if (attribute.type !== 'JSXAttribute') continue;
@@ -779,7 +913,7 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
       const callee = unwrap(node.callee)!;
       if (callee.type === 'MemberExpression' && !callee.computed && /^(?:map|flatMap|filter|reduce)$/.test(callee.property.name)) return false;
       const name = calleeName(callee);
-      if (name && (translatorNames.test(name) || facts.translators[name] !== undefined || /^[A-Z]/.test(name.split('.').pop()!))) return false;
+      if (libraryCall(callee) || name && (translatorNames.test(name) || facts.translators[name] !== undefined || /^[A-Z]/.test(name.split('.').pop()!))) return false;
       if (node.arguments.some((arg: Node) => knownKey(arg, name))) return false;
       const chain = callee.type === 'MemberExpression' ? memberPath(callee) : undefined;
       return !(chain && (messageNames.has(chain.root) || knownPath(chain.path, chain.root)));
@@ -835,16 +969,22 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
     return { key: `key:${key}`, where: `${key}:`, kind: 'property', base, position: base ? 'text' : 'code', wrap: 'expression' };
   };
 
-  const object = (node: Node): void => {
-    if (localeObject(node)) return;
+  /** An object literal. In a message descriptor or the options of a message call (`messages`), the ID, default text and notes are not findings. */
+  const object = (node: Node, messages = false): void => {
+    // `{ id: "home.title", message: "Welcome" }`: a Lingui or react-intl descriptor.
+    if (!messages && standaloneDescriptor(node)) { facts.localized++; messages = true; }
+    if (!messages && localeObject(node)) return;
     const siblings: Group = { localized: false, weak: true };
-    const labels = labelMap(node);
+    const labels = !messages && labelMap(node);
     for (const property of node.properties) {
       if (property.type !== 'Property') { visit(property); continue; }
       if (property.computed) visit(property.key);
       const key = propertyName(property.key, property.computed);
       if (ignoreStarts.has(property.start)) ignoreRanges.push([property.start, property.end]);
       const propertyValue = unwrap(property.value)!;
+      if (messages && key !== undefined && descriptorKey.test(key) && property.kind === 'init') { messageArgument(propertyValue, false); continue; }
+      // react-intl's defineMessages({ greeting: { id, defaultMessage } }): a map of descriptors.
+      if (messages && propertyValue.type === 'ObjectExpression' && descriptor(propertyValue)) { facts.localized++; object(propertyValue, true); continue; }
       if (property.kind !== 'init' || propertyValue.type === 'FunctionExpression' || propertyValue.type === 'ArrowFunctionExpression') {
         if ((propertyValue.type === 'FunctionExpression' || propertyValue.type === 'ArrowFunctionExpression') && key) functionNode(propertyValue, key);
         else visit(property.value);
@@ -898,8 +1038,15 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
   const declarator = (node: Node, kind: string): void => {
     const id = node.id, init = unwrap(node.init);
     if (ignoreStarts.has(node.start)) ignoreRanges.push([node.start, node.end]);
+    bindLibrary(id, init);
     if (id.type === 'Identifier' && init) {
-      if (init.type === 'ArrowFunctionExpression' || init.type === 'FunctionExpression') { functionNode(init, id.name); return; }
+      if (init.type === 'ArrowFunctionExpression' || init.type === 'FunctionExpression') {
+        // `const _t = (message) => ({ id: message, message })` makes descriptors: its calls are messages.
+        const body = init.body?.type === 'BlockStatement' ? (init.body.body.length === 1 && init.body.body[0].type === 'ReturnStatement' ? unwrap(init.body.body[0].argument) : undefined) : unwrap(init.body);
+        if (libraryFile && body?.type === 'ObjectExpression' && descriptor(body)) libraryNames.set(id.name, 'call');
+        functionNode(init, id.name);
+        return;
+      }
       const source = init.type === 'AwaitExpression' ? unwrap(init.argument) : init;
       const name = source?.type === 'CallExpression' ? calleeName(source.callee) : undefined;
       if (name) {
@@ -963,6 +1110,7 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
         return;
       }
       case 'ObjectExpression': object(node); return;
+      case 'TaggedTemplateExpression': if (libraryCall(node.tag)) facts.localized++; break;
       // `locale === "sv" ? "Spara" : "Save"` is UI text wherever it stands.
       case 'ConditionalExpression': if (inline(node, inlineSink)) return; break;
       case 'VariableDeclaration': for (const declaration of node.declarations) declarator(declaration, node.kind); return;
@@ -1003,7 +1151,21 @@ export function createAnalyzer(facts: FileFacts, code: string, context: ScanCont
     }
   };
 
+  /** Names an i18n library import binds. Imports are hoisted, so they are read before any statement. */
+  const libraryImport = (node: Node): void => {
+    const source = String(node.source.value);
+    const library = libraryOf(source);
+    if (!library || node.importKind === 'type' || typeImport.test(code.slice(node.start, node.start + 40))) return;
+    libraryFile = true;
+    const exports = libraryExports[library]!;
+    for (const specifier of node.specifiers) {
+      const imported = specifier.type === 'ImportSpecifier' ? propertyName(specifier.imported) : specifier.type === 'ImportDefaultSpecifier' ? 'default' : undefined;
+      if (imported !== undefined && specifier.importKind !== 'type' && Object.hasOwn(exports, imported)) libraryNames.set(specifier.local.name, exports[imported]!);
+    }
+  };
+
   const program = (node: Node): void => {
+    for (const statement of node.body) if (statement.type === 'ImportDeclaration') libraryImport(statement);
     for (const statement of node.body) {
       if (ignoreStarts.has(statement.start)) ignoreRanges.push([statement.start, statement.end]);
       visit(statement);

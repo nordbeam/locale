@@ -5,6 +5,150 @@ documented here. The project follows [Semantic Versioning](https://semver.org/);
 before 1.0, minor versions may contain breaking changes, and they are called
 out in this file.
 
+## Unreleased
+
+Fixes and additions from migrating a production app (13,899 messages in four
+locales) from Lingui 3. One type change, in the TanStack Start adapter:
+`useHtmlAttributes().lang` is typed `string` (it was the locale type).
+
+### `@nordbeam/locale`
+
+- **Scopes read non-ASCII names.** The crawl behind scopes computed from code
+  matched property chains with an ASCII-only pattern, so `m.för()` and
+  `m.Sökförslag()` were left out of the scope, and an import that names a
+  non-ASCII binding (`import { Sökruta } from …`) was not followed. Pages then
+  threw `m.för is not a function` in production while the full catalog, which
+  tests render, had the message. Chains now follow JavaScript's identifier
+  rules, and a segment may be a string key (`m.video['för']()`).
+- **Why is a message in a scope?** `nordbeam-locale inspect --scope <name>`
+  lists the files the crawl read, with the number of messages each one is the
+  first to name and whether it sits behind a dynamic `import()`, and how many
+  messages the scope would hold without dynamic imports. `--id <message-id>`
+  prints the import chain that brought one message in. `inspectScope` returns
+  the same from `@nordbeam/locale/agent/inspect`, and the `report` page shows
+  each computed scope's file count and the dynamic-import trade-off.
+- **`"dynamicImports": false` on a scope** stops the crawl at dynamic
+  `import()` calls, for code split off behind a boundary that loads the full
+  catalog anyway. In the migrated app it took two scopes from 525 and 767
+  messages to 402 and 644; the hand-maintained Lingui scopes held 392 and 623.
+- **Arguments only a translation uses.** A translation could not use an
+  argument the base text leaves out (`UNKNOWN_ARGUMENT`), even when every call
+  passes it, such as a Finnish subtitle that shows a price the English one
+  omits. Declare it in the config: `"arguments": { "pricing.subtitle":
+  { "price": "value" } }`. The argument becomes part of the message's type and
+  of the development checks in every locale, and the `UNKNOWN_ARGUMENT` hint
+  names the declaration. New error: `INVALID_DECLARED_ARGUMENT`. See
+  [arguments only a translation uses](docs/GUIDE.md#arguments-only-a-translation-uses).
+- **Locale codes that mean another language.** A new `intlLocales` config key
+  maps a locale code to the BCP 47 tag `Intl` formats it with. `{ "se": "sv" }`
+  keeps `messages/se.json`, `locales/se.js` and `loadLocale('se')`, and formats
+  `se` as Swedish instead of Northern Sami. Plural rules, number and date
+  formatters, ICU skeletons, the `MISSING_PLURAL_CATEGORY` check and the PO
+  `Language` header use the tag; `X-Nordbeam-Locale` keeps the code, and PO
+  import accepts either. When the config maps a locale, the generated
+  `index.js` also exports `intlLocales`. New errors: `UNKNOWN_INTL_LOCALE` and
+  `INVALID_INTL_LOCALE`. See
+  [locale codes that mean another language](docs/GUIDE.md#locale-codes-that-mean-another-language).
+- The Next.js and TanStack Start routing take the generated `intlLocales`:
+  `Accept-Language` matches the tag (`sv-SE` selects `se`), the alternate
+  `Link` header writes it as `hreflang`, and TanStack Start's
+  `useHtmlAttributes()` writes it as `lang`. `intlLocaleOf(routing, locale)`
+  returns it. **Type change:** `useHtmlAttributes().lang` is typed `string`.
+- **`verify` passes after a production build.** `verify` compared the output
+  with the mode `NODE_ENV` implies, so after `vite build` or `next build` wrote
+  production output, a check without `NODE_ENV` failed with `GENERATED_STALE`
+  ("generation options changed"). Without a flag or `NODE_ENV`, `verify` and
+  `inspect` now accept output generated in either mode and report it as
+  `freshness.mode`. `--production` and `--development`, new on both commands,
+  make the mode a requirement, and the stale reason then says which mode the
+  output is in.
+- **`init` writes `"prebuild": "nordbeam-locale --production"`.** It wrote
+  `nordbeam-locale`, which generates development output, with argument guards,
+  before a production build.
+- **`init` keeps generated code out of linters and formatters.** It adds the
+  generated directory to `.eslintignore`, `.prettierignore`, `.oxlintrc.json`
+  and `.oxfmtrc.json` when they exist, and says what to add to a flat
+  `eslint.config.*` or a Biome config. In the migrated app, linting the
+  generated output added 6,700 ESLint errors.
+- **`doctor` warns when an apostrophe joins two quoted runs.** In ICU,
+  `'<br/>''<br/>'` is one quoted run that contains an escaped apostrophe, so
+  it renders `<br/>'<br/>`. It is valid, and almost always a quoting mistake.
+  The new `QUOTED_RUN_APOSTROPHE` warning shows what the run renders and the
+  single run to write instead. It found 317 such runs in 86 messages of the
+  migrated catalogs.
+- **Test messages.** `@nordbeam/locale/testing` adds `messageIds(messages)`, a
+  messages object in which every message renders its ID, and
+  `withMessages(messages, overrides)`, a copy with some messages replaced by
+  text or by a function typed from the message, through both flat and nested
+  access. `compileMessages(texts)` compiles a test's own ICU text with the same
+  compiler. Component tests no longer need a hand-written ICU renderer or
+  `Object.create(messages, …)`. See [testing](docs/reference/testing.md).
+- **Elements in plain arguments.** `rich()` accepts a React element for a plain
+  `{name}` argument, also in a message without tags:
+  `rich(m.promo, { code: <strong>{code}</strong> })`. Number, date and `select`
+  arguments still take values only. `@nordbeam/locale/react/rich` grows by
+  167 B min+gzip.
+- **`hardcoded` recognizes Lingui, react-intl and i18next.** Text those
+  libraries render is no longer reported, so a scan before a migration is a
+  baseline: Lingui `<Trans>`, `<Plural>`, `` t`…` ``, `msg`, `defineMessage`,
+  `plural()` and `i18n._({ id, message })`; react-intl `<FormattedMessage>`,
+  `defineMessages` and `intl.formatMessage()`; i18next `t('key', 'Default')`
+  and `<Trans i18nKey>`. Files that use them count as localized. After a
+  migration, the `message` or `defaultMessage` of a descriptor passed to a
+  message call is no longer reported either. On the app before its migration,
+  findings went from 4,001 to 2,945, and those on Lingui `message:` text from
+  1,097 to 11.
+- `hardcoded` names a mapped locale by its tag's language, so a branch such as
+  `isSwedish` counts as an inline translation of `se`.
+- **A Vite config bundled as CommonJS can load the plugin.** Every entry point
+  now has a `default` export condition next to `import`, so `require()`
+  resolves it and Node 22.12+ loads the ES module. Vite bundles
+  `vite.config.ts` and `vitest.config.ts` as CommonJS in a package without
+  `"type": "module"`, and the import failed with
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+- The `bin` paths no longer start with `./`, which npm 11 reported as invalid
+  and rewrote on every publish.
+
+### `@nordbeam/locale-migrate`
+
+- **Lingui 3 projects.** `migrate-project --from . --format lingui` reads the
+  catalogs that `package.json#lingui` or `.linguirc` names, and Lingui's
+  `sourceLocale` becomes the base locale; `<locale>/messages.po` folders are
+  found without configuration. A new `lingui-po` catalog format converts what
+  Lingui 3 rendered: numbered tags become `<tag0>…</tag0>` for `rich()`, a run
+  of HTML tags is quoted as one literal (`'<br/><br/>'`, never
+  `'<br/>''<br/>'`), apostrophes, obsolete `#~` entries and unescaped PO quotes
+  are read as Lingui read them, an empty source-locale text takes its ID, and
+  messages with arguments are trimmed as Lingui trimmed them. New warnings:
+  `LINGUI_PO_QUOTES`, `LINGUI_OBSOLETE_INCLUDED`, `LINGUI_WHITESPACE_TRIMMED`
+  and `LINGUI_SOURCE_ID_TEXT`.
+- **Every failing message at once.** A catalog that cannot be converted, or
+  that breaks the contract between locales, fails with `COMMAND_FAILED`
+  followed by one error per message with its `code`, `locale`, `file` and
+  `messageId`. It used to stop at the first.
+- **Grouped warnings.** `DOTTED_SOURCE_ID`, `MIGRATION_METADATA_DROPPED`, the PO
+  skip warnings and the Lingui warnings come once per code and catalog, with
+  `count` and `messageIds`, instead of once per message. IDs that cannot nest
+  (a message that is also a namespace, or an empty or space-edged segment) are
+  renamed the same way in every locale and in the rewritten calls, reported as
+  `MIGRATION_ID_RENAMED` with a `renamed` map.
+- **Conversion check.** Each converted message is read back and compared with
+  its source; a difference is reported as `MIGRATION_TEXT_CHANGED`.
+- **More `<Trans>` rewritten.** `<Trans components={[…]}>` becomes `rich()`,
+  `id={'x'}` and conditional IDs are rewritten, and `i18n._()` descriptors keep
+  their `values`. Elements are bounded by the parser, so a nested `/>` no
+  longer swallows its siblings. Components that used `<Trans>` without
+  `useLingui()` get a `useMessages()` binding, and an element outside any
+  component becomes a generated `<LocaleMessage render={(m) => …} />`, so it
+  still renders in the current locale. On the 13,899-message app, the source
+  rewrite changed 3,170 calls in 496 files.
+- The `--catalog-format` help says it names the format of the legacy catalogs
+  being read.
+
+### `nordbeam-locale`
+
+- Released at the same version as `@nordbeam/locale`.
+
 ## 0.4.0
 
 New commands for seeing where a project's translations stand: `report` and

@@ -507,14 +507,16 @@ async function largestFirst(files: readonly string[]): Promise<string[]> {
   return files.map((file, index) => ({ file, size: sizes[index]! })).sort((a, b) => b.size - a.size).map(item => item.file);
 }
 
-export function scanContext(ids: Iterable<string>, config: TextScanConfig = {}, locales: readonly string[] = [], base = locales[0] ?? 'en'): ScanContext {
+export function scanContext(ids: Iterable<string>, config: TextScanConfig = {}, locales: readonly string[] = [], base = locales[0] ?? 'en', intlLocales?: Readonly<Record<string, string>>): ScanContext {
   const set = new Set(ids), namespaces = new Set<string>();
   for (const id of set) for (let i = id.indexOf('.'); i !== -1; i = id.indexOf('.', i + 1)) namespaces.add(id.slice(0, i));
   // "en", "english" and "en" itself name English; "sv", "swedish" and "svenska" name Swedish.
   const localeNames = new Map<string, string[]>();
   for (const locale of locales) {
-    const language = locale.split('-')[0]!.toLowerCase(), names = new Set([locale.toLowerCase().replace(/[^a-z]/g, ''), language]);
-    for (const display of [locale, 'en']) {
+    // A code that intlLocales maps (se for Swedish) is named by its tag's language: sv, swedish, svenska.
+    const tag = intlLocales && Object.hasOwn(intlLocales, locale) ? intlLocales[locale]! : locale;
+    const language = tag.split('-')[0]!.toLowerCase(), names = new Set([locale.toLowerCase().replace(/[^a-z]/g, ''), language]);
+    for (const display of [tag, 'en']) {
       try { const name = new Intl.DisplayNames([display], { type: 'language' }).of(language); if (name) names.add(name.normalize('NFD').replace(/[^A-Za-z]/g, '').toLowerCase()); } catch { /* unknown locale */ }
     }
     localeNames.set(locale, [...names]);
@@ -641,7 +643,7 @@ export async function scanText(options: TextScanOptions): Promise<TextScanResult
   try {
     const ordering = pool ? largestFirst(files) : undefined;
     catalogs = await reading;
-    const context = scanContext((catalogs.texts.get(catalogs.base) ?? new Map<string, string>()).keys(), config, catalogs.locales, catalogs.base);
+    const context = scanContext((catalogs.texts.get(catalogs.base) ?? new Map<string, string>()).keys(), config, catalogs.locales, catalogs.base, options.intlLocales);
     // With persistentCache, a file whose stamp and scan context are unchanged reuses its facts.
     cache = options.persistentCache ? await openCache(root, options.persistentCache, context, files) : undefined;
     const pending = cache ? files.filter(file => !cache!.hits.has(file)) : files;

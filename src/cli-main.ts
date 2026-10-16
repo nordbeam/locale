@@ -17,7 +17,7 @@ import { capList, displayPath, paint, parseLimit, plural, relativePaths, shapeDi
 import type { GroupedWarning, ReportOptions, ShapedDiagnostics } from './cli-output.js';
 import type { InitFramework } from './init.js';
 import type { SkillInstallEntry } from './skills.js';
-import type { InspectFreshness, InspectMessageResult, InspectResult } from './inspect.js';
+import type { InspectFreshness, InspectMessageResult, InspectResult, InspectScopeResult } from './inspect.js';
 import { coreVersion, loadMigrate } from './migrate-loader.js';
 import type { CodemodFormat, CodemodSkip, MigrationFormat } from './migrate-loader.js';
 import type { JsonValue, NdjsonEventWriter } from './ndjson-events.js';
@@ -284,10 +284,36 @@ function freshnessProblem(freshness: InspectFreshness): Diagnostic | undefined {
   return { code: 'GENERATED_STALE', message: `generated output is ${freshness.status}${reasons ? `: ${reasons}` : ''}` } as Diagnostic;
 }
 
+function printScope(scope: InspectScopeResult, root: string, limit: number): void {
+  const share = `${(Math.round(scope.share * 1000) / 10).toString()}% of the base catalog`;
+  if (scope.kind === 'messages') console.log(`Scope ${scope.scope}: ${plural(scope.messageCount, 'message')} (${share}), listed as ${scope.patterns.join(', ')}.`);
+  else {
+    console.log(`Scope ${scope.scope}: ${plural(scope.messageCount, 'message')} (${share}), named in ${plural(scope.fileCount!, 'file')} reached from ${scope.modules!.join(', ')}.`);
+    if (scope.withoutDynamicImports !== undefined) console.log(`With "dynamicImports": false the crawl would stop at dynamic import() calls, and the scope would hold ${plural(scope.withoutDynamicImports, 'message')}.`);
+  }
+  const message = scope.message;
+  if (message) {
+    if (!message.inScope) console.log(`\n${message.id} is not in scope ${scope.scope}.`);
+    else if (message.pattern) console.log(`\n${message.id} is in scope ${scope.scope}: the configured pattern ${message.pattern} selects it.`);
+    if (message.chain.length) {
+      console.log(`\n${message.id} is named by ${message.namedBy.map(file => displayPath(file, root)).join(', ')}, reached by:`);
+      message.chain.forEach((link, index) => console.log(`  ${index ? (link.dynamic ? '⇢ ' : '→ ') : ''}${displayPath(link.file, root)}${link.dynamic ? '  (dynamic import)' : ''}`));
+    }
+    return;
+  }
+  if (!scope.files?.length) return;
+  const files = capList(scope.files.filter(file => file.messages > 0), limit);
+  console.log('\nFiles that name the most of its messages first:');
+  const width = Math.max(...files.items.map(file => String(file.messages).length));
+  for (const file of files.items) console.log(`  ${String(file.messages).padStart(width)}  ${displayPath(file.file, root)}${file.dynamic ? '  (behind a dynamic import)' : ''}`);
+  if (files.omitted) console.log(`  … ${plural(files.omitted, 'more file')} (--limit all lists every file)`);
+  console.log(`\nWhy is a message in the scope? nordbeam-locale inspect --scope ${scope.scope} --id <message-id>`);
+}
+
 function printMessage(message: InspectMessageResult, root: string): void {
   const list = (items: readonly string[]) => items.length ? items.join(', ') : 'none';
   const argumentsText = message.argumentsError !== undefined ? `unknown (${message.argumentsError})`
-    : list(message.arguments.map(argument => `${argument.name} (${argument.type}${argument.choices.length ? `: ${argument.choices.join('|')}` : ''})`));
+    : list(message.arguments.map(argument => `${argument.name} (${argument.type}${argument.choices.length ? `: ${argument.choices.join('|')}` : ''}${argument.declared ? ', declared in the config' : ''})`));
   console.log(message.id);
   console.log(`  present:      ${list(message.present)}`);
   console.log(`  missing:      ${list(message.missing)}`);
@@ -420,6 +446,7 @@ async function main(): Promise<void> {
     from: { type: 'string' },
     out: { type: 'string' },
     id: { type: 'string' },
+    scope: { type: 'string' },
     message: { type: 'string' },
     'default-message': { type: 'string' },
     to: { type: 'string' },
@@ -612,6 +639,8 @@ async function main(): Promise<void> {
   if (values.update !== undefined && !pseudolocalizing) throw usageError('--update is available with nordbeam-locale pseudo.');
   if (values['schema-dir'] !== undefined && !writingSchemas) throw usageError('--schema-dir is available with nordbeam-locale schema.');
   if (inspecting && values.id !== undefined && values.ndjson) throw usageError('inspect --id prints one message, as JSON or as text; it does not stream NDJSON.');
+  if (values.scope !== undefined && !inspecting) throw usageError('--scope is available with nordbeam-locale inspect.', { option: '--scope' });
+  if (inspecting && values.scope !== undefined && values.ndjson) throw usageError('inspect --scope prints one scope, as JSON or as text; it does not stream NDJSON.');
   if (values.agent !== undefined && !init) throw usageError('--agent is available with nordbeam-locale init.');
   if (values.target !== undefined || values.skill !== undefined) throw usageError('--target and --skill are available with nordbeam-locale skills install.');
   if (writingReport && (values.only !== undefined || values.summary !== undefined)) throw usageError('report accepts --limit for its JSON lists, but not --only or --summary.');
@@ -621,7 +650,7 @@ async function main(): Promise<void> {
   if (applyingPlan && !values.from) throw usageError('apply-plan requires --from <reviewed-plan.json>.');
   if (pseudolocalizing && !values.locale) throw usageError('pseudo requires --locale en-XA.');
   if (values.development && values.production) throw usageError('Choose either --development or --production, not both.');
-  if (values.production && !generating && !init && !migratingProject) throw usageError('--production is available with nordbeam-locale generate, init, or migrate-project.');
+  if (values.production && !generating && !init && !migratingProject && !verifying && !inspecting) throw usageError('--production is available with nordbeam-locale generate, init, migrate-project, verify, or inspect.');
   const renameFrom = values.id ?? positionals[1], renameTo = values.to ?? positionals[2];
   const extractId = values.id ?? positionals[1], extractMessageText = values.message ?? values['default-message'] ?? positionals[2];
   if (renaming && (!renameFrom || !renameTo)) throw usageError('rename requires --id old.id and --to new.id (or: rename old.id new.id).');
@@ -665,6 +694,9 @@ async function main(): Promise<void> {
   // Production builds should set NODE_ENV=production or pass --production; an
   // unset NODE_ENV keeps the development output that the CLI has always produced.
   const development = values.development ?? (values.production ? false : process.env.NODE_ENV !== 'production');
+  // verify and inspect accept output from either build mode unless one was asked for, so a check after
+  // `vite build` (production output) passes without NODE_ENV.
+  const anyMode = values.development === undefined && !values.production && process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'development';
   if (human && process.env.NODE_ENV === undefined && values.development === undefined && !values.production && (generating || (init && !(values.agent && loaded)) || migratingProject)) {
     console.error('nordbeam-locale: NODE_ENV is unset, so development output with argument guards is generated. For production builds, set NODE_ENV=production or pass --production.');
   }
@@ -716,7 +748,20 @@ async function main(): Promise<void> {
     return;
   }
   if (inspecting) {
-    const { inspectProject, inspectMessage, baseMessageIds } = await import('./inspect.js');
+    const { inspectProject, inspectMessage, inspectScope, baseMessageIds } = await import('./inspect.js');
+    if (values.scope !== undefined) {
+      requireCatalogs(options);
+      const scope = await inspectScope(options, values.scope, values.id);
+      if (!scope) {
+        const names = Object.keys(options.scopes ?? {});
+        const near = suggest(values.scope, names);
+        throw usageError(`Unknown scope ${JSON.stringify(values.scope)}${near ? `, did you mean ${near}?` : names.length ? `; the config defines ${names.join(', ')}.` : '; the config defines no scopes.'}`, { option: '--scope', value: values.scope, validValues: names, ...(near ? { suggestion: near } : {}) });
+      }
+      const files = scope.files && capList(scope.files, shape.limit);
+      if (values.json) jsonSuccess({ root, ...relativePaths({ ...scope, ...(files ? { files: files.items } : {}) }, root), ...(files?.omitted ? { truncated: { files: files.omitted } } : {}) });
+      else printScope(scope, root, shape.explicitLimit ? shape.limit : 20);
+      return;
+    }
     if (values.id !== undefined) {
       requireCatalogs(options);
       const message = await inspectMessage(options, values.id);
@@ -729,7 +774,7 @@ async function main(): Promise<void> {
       if (!message.found) process.exitCode = 1;
       return;
     }
-    const result = await inspectProject(options, configFile, loaded);
+    const result = await inspectProject(options, configFile, loaded, { anyMode });
     const report = inspectReport(result, shape, root);
     if (values.ndjson) await eventResult('inspect', report, undefined, (report.diagnostics ?? report) as { errors?: unknown; warnings?: unknown });
     else if (values.json) jsonSuccess(report);
@@ -744,7 +789,7 @@ async function main(): Promise<void> {
   if (verifying) {
     requireCatalogs(options);
     const { inspectProject } = await import('./inspect.js');
-    const result = await inspectProject(options, configFile, loaded);
+    const result = await inspectProject(options, configFile, loaded, { anyMode });
     const { freshness } = result;
     const problem = freshnessProblem(freshness);
     const lists = humanLists([...result.diagnostics.errors, ...(problem ? [problem] : [])], result.diagnostics.warnings, shape);
@@ -754,7 +799,7 @@ async function main(): Promise<void> {
     const body = {
       ok,
       summary: lists.summary,
-      freshness: { status: freshness.status, ...(freshness.next ? { next: freshness.next } : {}), staleReason: staleReason.items, modifiedFiles: modifiedFiles.items },
+      freshness: { status: freshness.status, ...(freshness.mode ? { mode: freshness.mode } : {}), ...(freshness.next ? { next: freshness.next } : {}), staleReason: staleReason.items, modifiedFiles: modifiedFiles.items },
       errors: lists.errors,
       ...(Object.keys(truncated).length ? { truncated } : {}),
     };
@@ -763,7 +808,7 @@ async function main(): Promise<void> {
       // Verify reports problems only: warnings are counted in the summary but not printed.
       for (const item of lists.errors) console.error(paint(process.stderr, 'red', `${'file' in item && item.file ? `${displayPath(item.file, root)}: ` : ''}${item.code}: ${item.message}`));
       console.log(paint(process.stdout, ok ? 'green' : 'red', ok
-        ? `nordbeam-locale: verified — ${plural(result.messageCount, 'message')} in ${plural(result.locales.length, 'locale')}, generated output is fresh.`
+        ? `nordbeam-locale: verified — ${plural(result.messageCount, 'message')} in ${plural(result.locales.length, 'locale')}, generated output is fresh (${freshness.mode} build).`
         : `nordbeam-locale: verify failed — ${plural(lists.summary.errors, 'problem')}.`));
       const hint = truncationHint(lists.truncated);
       if (hint) console.log(hint);
@@ -998,6 +1043,7 @@ async function main(): Promise<void> {
     console.log('Next.js: wrap next.config.mjs with withNordbeamLocale() from "@nordbeam/locale/next"; it generates before builds and watches catalogs during next dev.');
     if (result.framework === 'vite-react') console.log(`\nVite React scaffold: import { i18n } from ${JSON.stringify('./' + displayPath(resolve(result.project.outDir, 'client.js')))} and wrap the app with <i18n.Provider initialLocale="${options.baseLocale}">.`);
     for (const note of result.frameworkNotes ?? []) console.log(`\nNext: ${note}`);
+    for (const note of result.notes ?? []) console.log(`\nNext: ${note}`);
     const adapter = (file: string) => JSON.stringify('./' + displayPath(resolve(result.project.outDir, file)));
     if (result.framework === 'vue') console.log(`\nVue scaffold: import { i18n } from ${adapter('vue.js')} and call app.use(i18n) in the entry file.`);
     if (result.framework === 'svelte') console.log(`\nSvelte scaffold: import { i18n } from ${adapter('svelte.js')} and call setI18nContext(i18n) in the root component or layout.`);

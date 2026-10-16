@@ -657,12 +657,50 @@ async function hardcodedSummary(options: RefactorOptions): Promise<DoctorHardcod
   };
 }
 
+/**
+ * Quoted text where `''` sits right before syntax: `'<br/>''<br/>'` or `'{''}'`. ICU reads that as one
+ * quoted run holding an apostrophe, so the page shows `<br/>'<br/>`; it is almost always two runs quoted
+ * one by one and joined. An apostrophe in prose (`'{name}''s'`) is followed by a letter and is left alone.
+ * Returns where each run starts, the run as written, as it renders, and as one quoted run without the joins.
+ */
+export function joinedQuotedRuns(text: string): Array<{ start: number; quoted: string; renders: string; fixed: string }> {
+  const found: Array<{ start: number; quoted: string; renders: string; fixed: string }> = [];
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] !== "'") continue;
+    // An apostrophe quotes only before syntax (`{`, `}`, `<`, `>`, `#`); `''` is an apostrophe anywhere.
+    if (text[index + 1] === "'") { index++; continue; }
+    if (!/[{}<>#]/.test(text[index + 1] ?? '')) continue;
+    const start = index;
+    let renders = '', fixed = "'", joined = false;
+    for (index++; index < text.length; index++) {
+      if (text[index] !== "'") { renders += text[index]; fixed += text[index]; continue; }
+      if (text[index + 1] !== "'") break;
+      if (/[{}<>#]/.test(text[index + 2] ?? '')) joined = true;
+      else fixed += "''";
+      renders += "'";
+      index++;
+    }
+    if (joined) found.push({ start, quoted: text.slice(start, index + 1), renders, fixed: `${fixed}'` });
+  }
+  return found;
+}
+
+const clip = (text: string): string => text.length > 60 ? `${text.slice(0, 57)}...` : text;
+
 /** Validate the project and provide a compact inventory useful in editors/CI. */
 export async function doctor(options: RefactorOptions): Promise<DoctorResult> {
   let checked;
   try {
     const input = await loadCatalogs(options), result = checkProject({ ...options, catalogs: input.catalogs, notes: undefined, scopes: staticScopes(options.scopes) });
-    const errors = locateDiagnostics(result.errors, input.sources), warnings = locateDiagnostics(result.warnings, input.sources);
+    const quoting: Diagnostic[] = [];
+    for (const [locale, catalog] of Object.entries(input.catalogs)) {
+      for (const leaf of leaves(catalog, locale)) {
+        for (const run of joinedQuotedRuns(leaf.text)) {
+          quoting.push({ code: 'QUOTED_RUN_APOSTROPHE', message: `The quoted text ${clip(run.quoted)} shows an apostrophe: ${clip(run.renders)}.`, hint: `Quote adjacent syntax as one run, ${clip(run.fixed)}, or end the quote before an apostrophe that should show.`, locale, messageId: leaf.id, offset: run.start, source: leaf.text });
+        }
+      }
+    }
+    const errors = locateDiagnostics(result.errors, input.sources), warnings = locateDiagnostics([...result.warnings, ...quoting], input.sources);
     const base = input.catalogs[options.baseLocale];
     const ids = base ? leaves(base, options.baseLocale).map(item => item.id) : [];
     // Infer common application roots when --source-dir is omitted. Next apps

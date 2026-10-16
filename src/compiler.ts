@@ -40,6 +40,10 @@ export interface CompilerOptions {
   formats?: Formats;
   /** Applied to date/time formatters unless a named format overrides it. */
   timeZone?: string;
+  /** The BCP 47 tag that `Intl` formats a locale with, by locale, for a locale whose
+   * code means another language to `Intl`: `{ se: 'sv' }` keeps the `se` catalog and
+   * module and formats them as Swedish. Other locales format as themselves. */
+  intlLocales?: Readonly<Record<string, string>>;
   /** Exact IDs or prefix patterns ending in .*; each scope has its own loader. */
   scopes?: Record<string, readonly string[]>;
   /** Scopes whose development loader logs each read of a message they leave out.
@@ -60,7 +64,13 @@ export interface CompilerOptions {
   /** Notes about messages, by message ID. Typed output shows each beside its
    * message in editor hovers; IDs that are not in the base catalog are ignored. */
   notes?: Readonly<Record<string, string>>;
+  /** Arguments a message takes beyond those its base text uses, by message ID, so a
+   * translation may use them: `{ "plan.subtitle": { "price": "value" } }`. They are part of
+   * the message's type and argument checks in every locale. */
+  arguments?: Readonly<Record<string, Readonly<Record<string, DeclaredArgumentKind>>>>;
 }
+/** `value` is a plain `{name}` (string or number), `number` and `date` the formatted kinds. */
+export type DeclaredArgumentKind = 'value' | 'number' | 'date';
 export interface CompilerCacheOptions {
   /** Estimated retained message-body budget; excludes catalogs and final output. Default: 64 MiB. Use 0 to disable body caching. */
   maxMessageCacheBytes?: number;
@@ -176,6 +186,7 @@ interface CompilationState {
   schema: Schema;
   baseLocale: string;
   missing: CompilerOptions['missing'];
+  declared: string;
   warnings: Diagnostic[];
   outputs: Map<string, CatalogOutput>;
   types: Map<string, TypeOutput>;
@@ -252,6 +263,38 @@ function validateLocale(locale: string): void {
     if (error instanceof CompileError) throw error;
     fail('INVALID_LOCALE', `Invalid BCP 47 locale ${quote(locale)}.`, { locale });
   }
+}
+
+/** The tag `Intl` formats `locale` with: its `intlLocales` entry, or the locale itself. */
+function intlTag(options: Pick<CompilerOptions, 'intlLocales'>, locale: string): string {
+  const tags = options.intlLocales;
+  return tags && Object.hasOwn(tags, locale) ? tags[locale]! : locale;
+}
+
+/** Each `intlLocales` entry must name a catalog and map it to a canonical BCP 47 tag.
+ * The diagnostics describe the configuration, so they carry no catalog locale. */
+function intlLocaleDiagnostics(options: Pick<CompilerOptions, 'intlLocales'>, locales: readonly string[]): { diagnostics: Diagnostic[]; invalid: Set<string> } {
+  const tags = options.intlLocales;
+  const diagnostics: Diagnostic[] = [], invalid = new Set<string>();
+  if (tags === undefined) return { diagnostics, invalid };
+  if (!tags || typeof tags !== 'object' || Array.isArray(tags)) {
+    for (const locale of locales) invalid.add(locale);
+    return { diagnostics: [{ code: 'INVALID_INTL_LOCALE', message: 'intlLocales must be an object of locale codes to BCP 47 tags.' }], invalid };
+  }
+  for (const [locale, tag] of Object.entries(tags).sort(([a], [b]) => compare(a, b))) {
+    if (!locales.includes(locale)) {
+      diagnostics.push({ code: 'UNKNOWN_INTL_LOCALE', message: `intlLocales maps ${quote(locale)}, which has no catalog.` });
+      continue;
+    }
+    let canonical: string | undefined;
+    try { canonical = typeof tag === 'string' && tag ? Intl.getCanonicalLocales(tag)[0] : undefined; } catch { /* reported below */ }
+    if (canonical === tag) continue;
+    invalid.add(locale);
+    diagnostics.push({ code: 'INVALID_INTL_LOCALE', message: canonical === undefined
+      ? `intlLocales maps ${quote(locale)} to ${quote(tag)}, which is not a BCP 47 locale.`
+      : `intlLocales maps ${quote(locale)} to ${quote(tag)}; use the canonical tag ${quote(canonical)}.` });
+  }
+  return { diagnostics, invalid };
 }
 
 type Report = (diagnostic: Diagnostic) => void;
@@ -349,6 +392,24 @@ function mergeArgument(target: Map<string, Argument>, name: string, arg: Argumen
   }
   for (const choice of arg.choices) previous.choices.add(choice);
 }
+
+/** A message's base contract with the arguments the configuration declares for it, as a copy. */
+function declaredContract(id: string, contract: Map<string, Argument>, declared: Readonly<Record<string, DeclaredArgumentKind>>, locale: string): Map<string, Argument> {
+  const copy = new Map([...contract].map(([name, arg]) => [name, { kind: arg.kind, choices: new Set(arg.choices) }]));
+  for (const [name, kind] of Object.entries(declared)) {
+    if (!/^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u.test(name) || (kind !== 'value' && kind !== 'number' && kind !== 'date')) {
+      fail('INVALID_DECLARED_ARGUMENT', `arguments declares ${quote(name)} as ${quote(kind)}; declare an argument name as "value", "number" or "date".`, { locale, messageId: id });
+    }
+    mergeArgument(copy, name, { kind, choices: noChoices }, { locale, messageId: id });
+  }
+  return copy;
+}
+
+function unknownArgumentHint(id: string, name: string, locale: string): string {
+  return `Remove ${quote(name)} from the ${locale} text or rename it to an argument the base message uses. If the call passes it and only the base text leaves it out, declare it in the config: "arguments": { ${quote(id)}: { ${quote(name)}: "value" } }.`;
+}
+
+const declaredKey = (declared: CompilerOptions['arguments']) => declared === undefined ? '' : optionKey(declared);
 
 // Parser and emitter recursion is limited by the JavaScript stack, not by ICU.
 function isStackOverflow(error: unknown): boolean {
@@ -641,7 +702,7 @@ function validateFormatter(kind: Formatter['kind'], locale: string, opts: object
     if (kind === 'NumberFormat') new Intl.NumberFormat(locale, opts);
     else if (kind === 'DateTimeFormat') new Intl.DateTimeFormat(locale, opts);
     else new Intl.PluralRules(locale, opts);
-  } catch (error) { fail('INVALID_FORMAT', (error as Error).message, { locale, messageId: message.id }); }
+  } catch (error) { fail('INVALID_FORMAT', (error as Error).message, { locale: message.locale, messageId: message.id }); }
 }
 
 // Integers below 200 select the same category for a locale and plural type
@@ -792,7 +853,9 @@ function renderCatalog(messages: Message[], schema: Schema, options: CompilerOpt
   function pluralRule(type: Intl.PluralRulesOptions['type'], message: Message): string {
     return type ? formatter('PluralRules', message.locale, pluralOptions[type], message, undefined, type) : formatter('PluralRules', message.locale, { type }, message);
   }
-  function formatter(kind: 'NumberFormat' | 'DateTimeFormat' | 'PluralRules', locale: string, opts: object, message: Message, node?: MessageFormatElement, optionsKey?: string): string {
+  function formatter(kind: 'NumberFormat' | 'DateTimeFormat' | 'PluralRules', catalogLocale: string, opts: object, message: Message, node?: MessageFormatElement, optionsKey?: string): string {
+    // Helpers carry the tag Intl formats with; diagnostics name the catalog locale.
+    const locale = intlTag(options, catalogLocale);
     optionsKey ??= formatterOptionsKey(kind, opts);
     let byLocale = formatterKeys[kind].get(optionsKey);
     if (!byLocale) formatterKeys[kind].set(optionsKey, byLocale = new Map());
@@ -802,7 +865,7 @@ function renderCatalog(messages: Message[], schema: Schema, options: CompilerOpt
     if (!helpers.has(key)) {
       try { validateFormatter(kind, locale, opts, message); }
       catch (error) {
-        if (node && error instanceof CompileError) fail('INVALID_FORMAT', presetConflict(error.diagnostics[0]!.message, node, options), { locale, messageId: message.id, source: message.source, ...node.location?.start });
+        if (node && error instanceof CompileError) fail('INVALID_FORMAT', presetConflict(error.diagnostics[0]!.message, node, options), { locale: catalogLocale, messageId: message.id, source: message.source, ...node.location?.start });
         throw error;
       }
       register({ key, kind, locale, options: opts });
@@ -947,9 +1010,10 @@ function renderCatalog(messages: Message[], schema: Schema, options: CompilerOpt
       localized.set(helper, factory);
       return factory;
     }
-    if (helper.locale === message.locale) { localized.set(helper, helper); return helper; }
-    const formatter: Formatter = { ...helper, locale: message.locale,
-      key: formatterKey(helper.kind, message.locale, helper.options) };
+    const locale = intlTag(options, message.locale);
+    if (helper.locale === locale) { localized.set(helper, helper); return helper; }
+    const formatter: Formatter = { ...helper, locale,
+      key: formatterKey(helper.kind, locale, helper.options) };
     if (!validatedLocalizedHelpers.has(formatter.key)) {
       validateFormatter(formatter.kind, formatter.locale, formatter.options, message);
       validatedLocalizedHelpers.add(formatter.key);
@@ -1022,7 +1086,7 @@ function renderCatalog(messages: Message[], schema: Schema, options: CompilerOpt
       let ast = message.ast;
       if (!ast) {
         let locale = intlLocales.get(message.locale);
-        if (!locale) { locale = new Intl.Locale(message.locale); intlLocales.set(message.locale, locale); }
+        if (!locale) { locale = new Intl.Locale(intlTag(options, message.locale)); intlLocales.set(message.locale, locale); }
         ast = parseAst(message.source, locale);
       }
       // Share code for plain text while retaining a distinct closure/value per
@@ -1486,7 +1550,7 @@ function scopeGuard(scope: string, outside: readonly string[]): string {
     + `const $guard=(value,path)=>{if((typeof value!=="object"&&typeof value!=="function")||value===null)return value;let guarded=$guards.get(value);if(!guarded){guarded=new Proxy(typeof value==="function"?()=>{}:{},{get(_,key){const result=Reflect.get(value,key);if(typeof key!=="string")return result;const id=path===undefined?key:path+"."+key;if(result===undefined&&($outside.has(id)||$parents.has(id))){if(!$reported.has(id)){$reported.add(id);console.error("Nordbeam Locale: message "+JSON.stringify(id)+" "+${quote(message)});}return result;}return $parents.has(id)?$guard(result,id):result;},has:(_,key)=>key in value,ownKeys:()=>Reflect.ownKeys(value),getOwnPropertyDescriptor(_,key){const descriptor=Reflect.getOwnPropertyDescriptor(value,key);if(descriptor)descriptor.configurable=true;return descriptor;},getPrototypeOf:()=>Reflect.getPrototypeOf(value),apply:(_,self,args)=>Reflect.apply(value,self,args)});$guards.set(value,guarded);}return guarded;};\n`;
 }
 
-function renderLoader(locales: string[], baseLocale: string, ids: readonly string[], includeSources = false, publicLocales = true, guard?: { readonly scope: string; readonly outside: readonly string[] }): { js: string; dts: string } {
+function renderLoader(locales: string[], baseLocale: string, ids: readonly string[], includeSources = false, publicLocales = true, guard?: { readonly scope: string; readonly outside: readonly string[] }, intlLocales?: Readonly<Record<string, string>>): { js: string; dts: string } {
   const messages = guard ? '$guard(module.default)' : 'module.default';
   const loaded = includeSources ? `{locale,messages:${messages},sources:module.sources}` : `{locale,messages:${messages}}`;
   const guardCode = guard ? scopeGuard(guard.scope, guard.outside) : '';
@@ -1494,13 +1558,17 @@ function renderLoader(locales: string[], baseLocale: string, ids: readonly strin
   const sourceField = includeSources ? '; readonly sources: MessageSources' : '';
   const messagesImport = publicLocales ? `./locales/${baseLocale}.js` : './messages.js';
   const generatedHeader = publicLocales ? header : jsHeader;
+  // Only a project that maps a locale gets the map, every locale included, so app code can format with intlLocales[locale].
+  const tags = intlLocales && locales.map(locale => [locale, intlTag({ intlLocales }, locale)] as const);
+  const intlJs = tags ? `export const intlLocales=Object.freeze({__proto__:null,${tags.map(([locale, tag]) => `[${quote(locale)}]:${quote(tag)}`).join(',')}});\n` : '';
+  const intlDts = tags ? `export declare const intlLocales: { ${tags.map(([locale, tag]) => `readonly ${quote(locale)}: ${quote(tag)};`).join(' ')} };\n` : '';
   if (!ids.some(id => id.includes('.'))) return {
-    js: generatedHeader + `export const locales=Object.freeze(${quote(locales)});\nexport const baseLocale=${quote(baseLocale)};\nconst loaders={__proto__:null,${locales.map(locale => `[${quote(locale)}]:()=>import(${quote(`./internal/locales/${locale}.js`)})`).join(',')}};\n${guardCode}export async function loadLocale(locale){const load=loaders[locale];if(!load)throw new RangeError("Unsupported locale: "+String(locale));const module=await load();return ${loaded};}\nexport function selectMessages(...keys){if(!keys.length||keys.some(key=>typeof key!=="string"))throw new TypeError("selectMessages requires message IDs");const cache=new Map();return async locale=>{const loaded=await loadLocale(locale);let messages=cache.get(locale);if(!messages){messages=Object.create(null);for(const key of keys){if(!Object.hasOwn(loaded.messages,key))throw new RangeError("Unknown message: "+key);messages[key]=loaded.messages[key];}cache.set(locale,messages);}return {locale,messages};};}\n`,
-    dts: header + `export declare const locales: readonly [${locales.map(quote).join(', ')}];\nexport type Locale = typeof locales[number];\nexport declare const baseLocale: ${quote(baseLocale)};\nexport type Messages = typeof import(${quote(messagesImport)}).default;${sourceType}\nexport interface LoadedLocale { readonly locale: Locale; readonly messages: Messages${sourceField} }\nexport declare function loadLocale(locale: Locale): Promise<LoadedLocale>;\nexport interface LoadedSelection<Key extends keyof Messages> { readonly locale: Locale; readonly messages: Pick<Messages, Key> }\nexport declare function selectMessages<const Keys extends readonly [keyof Messages, ...(keyof Messages)[]]>(...keys: Keys): (locale: Locale) => Promise<LoadedSelection<Keys[number]>>;\n`,
+    js: generatedHeader + `export const locales=Object.freeze(${quote(locales)});\nexport const baseLocale=${quote(baseLocale)};\n${intlJs}const loaders={__proto__:null,${locales.map(locale => `[${quote(locale)}]:()=>import(${quote(`./internal/locales/${locale}.js`)})`).join(',')}};\n${guardCode}export async function loadLocale(locale){const load=loaders[locale];if(!load)throw new RangeError("Unsupported locale: "+String(locale));const module=await load();return ${loaded};}\nexport function selectMessages(...keys){if(!keys.length||keys.some(key=>typeof key!=="string"))throw new TypeError("selectMessages requires message IDs");const cache=new Map();return async locale=>{const loaded=await loadLocale(locale);let messages=cache.get(locale);if(!messages){messages=Object.create(null);for(const key of keys){if(!Object.hasOwn(loaded.messages,key))throw new RangeError("Unknown message: "+key);messages[key]=loaded.messages[key];}cache.set(locale,messages);}return {locale,messages};};}\n`,
+    dts: header + `export declare const locales: readonly [${locales.map(quote).join(', ')}];\nexport type Locale = typeof locales[number];\nexport declare const baseLocale: ${quote(baseLocale)};\n${intlDts}export type Messages = typeof import(${quote(messagesImport)}).default;${sourceType}\nexport interface LoadedLocale { readonly locale: Locale; readonly messages: Messages${sourceField} }\nexport declare function loadLocale(locale: Locale): Promise<LoadedLocale>;\nexport interface LoadedSelection<Key extends keyof Messages> { readonly locale: Locale; readonly messages: Pick<Messages, Key> }\nexport declare function selectMessages<const Keys extends readonly [keyof Messages, ...(keyof Messages)[]]>(...keys: Keys): (locale: Locale) => Promise<LoadedSelection<Keys[number]>>;\n`,
   };
   return {
-    js: generatedHeader + `export const locales=Object.freeze(${quote(locales)});\nexport const baseLocale=${quote(baseLocale)};\nconst loaders={__proto__:null,${locales.map(locale => `[${quote(locale)}]:()=>import(${quote(`./internal/locales/${locale}.js`)})`).join(',')}};\n${guardCode}export async function loadLocale(locale){const load=loaders[locale];if(!load)throw new RangeError("Unsupported locale: "+String(locale));const module=await load();return ${loaded};}\nconst $namespace=()=>()=>{throw new TypeError("Translation namespace is not a message")};\nconst $nested=(messages,keys)=>{for(const key of keys){const parts=key.split(".");if(parts.length<2)continue;let target=messages;for(let i=0;i<parts.length-1;i++){const part=parts[i];let next=Object.hasOwn(target,part)?target[part]:undefined;if((typeof next!=="object"&&typeof next!=="function")||next===null){next=$namespace();Object.defineProperty(target,part,{value:next,enumerable:target!==messages});}target=next;}Object.defineProperty(target,parts.at(-1),{value:messages[key],enumerable:true,configurable:true});}return messages;};\nexport function selectMessages(...keys){if(!keys.length||keys.some(key=>typeof key!=="string"))throw new TypeError("selectMessages requires message IDs");const cache=new Map();return async locale=>{const loaded=await loadLocale(locale);let messages=cache.get(locale);if(!messages){messages=Object.create(null);for(const key of keys){if(!Object.hasOwn(loaded.messages,key))throw new RangeError("Unknown message: "+key);messages[key]=loaded.messages[key];}$nested(messages,keys);cache.set(locale,messages);}return {locale,messages};};}\n`,
-    dts: header + `import type {MessageId,SelectedMessages} from ${quote('./messages.js')};\nexport declare const locales: readonly [${locales.map(quote).join(', ')}];\nexport type Locale = typeof locales[number];\nexport declare const baseLocale: ${quote(baseLocale)};\nexport type Messages = typeof import(${quote(messagesImport)}).default;${sourceType}\nexport interface LoadedLocale { readonly locale: Locale; readonly messages: Messages${sourceField} }\nexport declare function loadLocale(locale: Locale): Promise<LoadedLocale>;\nexport interface LoadedSelection<Key extends MessageId> { readonly locale: Locale; readonly messages: SelectedMessages<Key> }\nexport declare function selectMessages<const Keys extends readonly [MessageId, ...MessageId[]]>(...keys: Keys): (locale: Locale) => Promise<LoadedSelection<Keys[number]>>;\n`,
+    js: generatedHeader + `export const locales=Object.freeze(${quote(locales)});\nexport const baseLocale=${quote(baseLocale)};\n${intlJs}const loaders={__proto__:null,${locales.map(locale => `[${quote(locale)}]:()=>import(${quote(`./internal/locales/${locale}.js`)})`).join(',')}};\n${guardCode}export async function loadLocale(locale){const load=loaders[locale];if(!load)throw new RangeError("Unsupported locale: "+String(locale));const module=await load();return ${loaded};}\nconst $namespace=()=>()=>{throw new TypeError("Translation namespace is not a message")};\nconst $nested=(messages,keys)=>{for(const key of keys){const parts=key.split(".");if(parts.length<2)continue;let target=messages;for(let i=0;i<parts.length-1;i++){const part=parts[i];let next=Object.hasOwn(target,part)?target[part]:undefined;if((typeof next!=="object"&&typeof next!=="function")||next===null){next=$namespace();Object.defineProperty(target,part,{value:next,enumerable:target!==messages});}target=next;}Object.defineProperty(target,parts.at(-1),{value:messages[key],enumerable:true,configurable:true});}return messages;};\nexport function selectMessages(...keys){if(!keys.length||keys.some(key=>typeof key!=="string"))throw new TypeError("selectMessages requires message IDs");const cache=new Map();return async locale=>{const loaded=await loadLocale(locale);let messages=cache.get(locale);if(!messages){messages=Object.create(null);for(const key of keys){if(!Object.hasOwn(loaded.messages,key))throw new RangeError("Unknown message: "+key);messages[key]=loaded.messages[key];}$nested(messages,keys);cache.set(locale,messages);}return {locale,messages};};}\n`,
+    dts: header + `import type {MessageId,SelectedMessages} from ${quote('./messages.js')};\nexport declare const locales: readonly [${locales.map(quote).join(', ')}];\nexport type Locale = typeof locales[number];\nexport declare const baseLocale: ${quote(baseLocale)};\n${intlDts}export type Messages = typeof import(${quote(messagesImport)}).default;${sourceType}\nexport interface LoadedLocale { readonly locale: Locale; readonly messages: Messages${sourceField} }\nexport declare function loadLocale(locale: Locale): Promise<LoadedLocale>;\nexport interface LoadedSelection<Key extends MessageId> { readonly locale: Locale; readonly messages: SelectedMessages<Key> }\nexport declare function selectMessages<const Keys extends readonly [MessageId, ...MessageId[]]>(...keys: Keys): (locale: Locale) => Promise<LoadedSelection<Keys[number]>>;\n`,
   };
 }
 
@@ -1551,16 +1619,20 @@ export function checkProject(options: CompilerOptions): CheckResult {
     report({ code: 'BASE_LOCALE_MISSING', message: `No catalog for base locale ${quote(options.baseLocale)}.` });
     baseBlocked.add('');
   }
+  // An invalid tag would format a locale as some other language, so it blocks that locale.
+  const { diagnostics: intlProblems, invalid: intlBlocked } = intlLocaleDiagnostics(options, locales);
+  for (const diagnostic of intlProblems) report(diagnostic);
   // Validation caches are local to this call. Each known Intl configuration is
   // constructed once, including failures; no formatter objects are retained.
   const formats = new Map<string, string | undefined>();
   function checkFormats(message: Message): void {
     // Enclosing select/plural branches as (kind, argument, choice) triples. Labels are built only when a warning needs them.
     const path: string[] = [];
+    const tag = intlTag(options, message.locale);
     function formatter(kind: Formatter['kind'], opts: object, node: MessageFormatElement): void {
-      const key = formatterKey(kind, message.locale, opts);
+      const key = formatterKey(kind, tag, opts);
       if (!formats.has(key)) {
-        try { validateFormatter(kind, message.locale, opts, message); formats.set(key, undefined); }
+        try { validateFormatter(kind, tag, opts, message); formats.set(key, undefined); }
         catch (error) {
           if (!(error instanceof CompileError)) throw error;
           formats.set(key, error.diagnostics[0]!.message);
@@ -1576,11 +1648,11 @@ export function checkProject(options: CompilerOptions): CheckResult {
           if (resolved) formatter(node.type === TYPE.number ? 'NumberFormat' : 'DateTimeFormat', resolved.options, node);
         } else if (node.type === TYPE.plural) {
           formatter('PluralRules', { type: node.pluralType }, node);
-          const required = pluralCategories(message.locale, node.pluralType ?? 'cardinal');
+          const required = pluralCategories(tag, node.pluralType ?? 'cardinal');
           if (required?.some(category => category !== 'other' && !Object.hasOwn(node.options, category))) {
             const labels: string[] = [];
             for (let i = 0; i < path.length; i += 3) labels.push(`${path[i]}:${path[i + 1]}=${path[i + 2]}`);
-            const missing = pluralCategoryDiagnostic(message.locale, { argument: node.value, path: labels, choices: Object.keys(node.options), pluralType: node.pluralType }, message.id)!;
+            const missing = pluralCategoryDiagnostic(message.locale, { argument: node.value, path: labels, choices: Object.keys(node.options), pluralType: node.pluralType }, message.id, tag)!;
             warnings.push({ code: missing.code, message: missing.message, hint: missing.hint, locale: message.locale, messageId: message.id, source: message.source, ...node.location?.start });
           }
           for (const choice of Object.keys(node.options)) {
@@ -1603,7 +1675,7 @@ export function checkProject(options: CompilerOptions): CheckResult {
   const ordered = own(options.catalogs, options.baseLocale) ? [options.baseLocale, ...locales.filter(locale => locale !== options.baseLocale)] : locales;
   for (const locale of ordered) {
     const isBase = locale === options.baseLocale;
-    if (!attempt(() => { validateLocale(locale); return true; })) { if (isBase) baseBlocked.add(''); continue; }
+    if (intlBlocked.has(locale) || !attempt(() => { validateLocale(locale); return true; })) { if (isBase) baseBlocked.add(''); continue; }
     const blocked = isBase ? baseBlocked : new Set<string>();
     const ambiguous = new Set<string>();
     const flat = flatten(options.catalogs[locale]!, locale, diagnostic => {
@@ -1612,7 +1684,7 @@ export function checkProject(options: CompilerOptions): CheckResult {
       if (diagnostic.code === 'DUPLICATE_KEY') ambiguous.add(diagnostic.messageId!);
     });
     if (isBase) base = flat;
-    const intlLocale = new Intl.Locale(locale);
+    const intlLocale = new Intl.Locale(intlTag(options, locale));
     for (const id of [...flat.keys()].sort()) {
       const source = flat.get(id)!;
       messageCount++;
@@ -1620,7 +1692,11 @@ export function checkProject(options: CompilerOptions): CheckResult {
       const message = attempt(() => readMessage(id, source, locale, intlLocale));
       if (!message) continue;
       checkFormats(message);
-      if (isBase) { schema.set(id, message.args); continue; }
+      if (isBase) {
+        const declared = options.arguments && Object.hasOwn(options.arguments, id) ? options.arguments[id]! : undefined;
+        schema.set(id, declared ? attempt(() => declaredContract(id, message.args, declared, locale)) ?? message.args : message.args);
+        continue;
+      }
       if (!base.has(id)) {
         if (!blockedBy(baseBlocked, id)) report({ code: 'UNKNOWN_MESSAGE', message: 'This key does not exist in the base catalog.', locale, messageId: id });
         continue;
@@ -1628,7 +1704,7 @@ export function checkProject(options: CompilerOptions): CheckResult {
       const contract = schema.get(id);
       if (!contract) continue;
       for (const [name, arg] of message.args) {
-        if (!contract.has(name)) report({ code: 'UNKNOWN_ARGUMENT', message: `Translation introduces ${quote(name)}, which is absent from the base message.`, ...argumentContext(message, name) });
+        if (!contract.has(name)) report({ code: 'UNKNOWN_ARGUMENT', message: `Translation introduces ${quote(name)}, which is absent from the base message.`, hint: unknownArgumentHint(id, name, message.locale), ...argumentContext(message, name) });
         else attempt(() => mergeArgument(contract, name, arg, { locale, messageId: id }, message));
       }
       let dropped: string[] | undefined;
@@ -1642,6 +1718,9 @@ export function checkProject(options: CompilerOptions): CheckResult {
       if (options.missing === 'error') report({ code: 'MISSING_MESSAGE', message: 'Translation is missing.', locale, messageId: id });
       else warnings.push({ code: 'FALLBACK_MESSAGE', message: `Using the ${options.baseLocale} message and formatting locale.`, locale, messageId: id });
     }
+  }
+  if (own(options.catalogs, options.baseLocale)) for (const id of Object.keys(options.arguments ?? {})) {
+    if (!base.has(id) && !blockedBy(baseBlocked, id)) report({ code: 'UNKNOWN_MESSAGE', message: 'arguments declares arguments for a message that is not in the base catalog.', locale: options.baseLocale, messageId: id });
   }
   for (const [scope, patterns] of Object.entries(options.scopes ?? {})) {
     scopeIds(scope, patterns, [...base.keys()], base, report, pattern => {
@@ -1673,12 +1752,20 @@ export function createCompiler(cacheOptions: CompilerCacheOptions = {}): (option
   if (!Number.isSafeInteger(limit) || limit < 0) throw new RangeError('maxMessageCacheBytes must be a nonnegative safe integer.');
   const emissions: EmissionCache = { entries: new Map(), bytes: 0, limit };
   let previous: CompilationState | undefined;
+  let previousIntl: string | undefined;
   return options => {
     const retired: Message[] = [];
     let committed = false;
+    // Another intlLocales mapping changes parsed skeletons and every formatter, so nothing carries over.
+    const intl = optionKey(options.intlLocales);
+    if (previous && intl !== previousIntl) {
+      for (const message of [...emissions.entries.keys()]) forgetEmission(emissions, message);
+      previous = undefined;
+    }
     try {
       const result = compile(options, previous, emissions, retired);
       previous = result.state;
+      previousIntl = intl;
       committed = true;
       // Callers may change returned metadata without corrupting the private cache.
       return { ...result.project, locales: [...result.project.locales],
@@ -1728,6 +1815,8 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
   const locales = Object.keys(options.catalogs).sort();
   if (!locales.length || !own(options.catalogs, options.baseLocale)) fail('BASE_LOCALE_MISSING', `No catalog for base locale ${quote(options.baseLocale)}.`);
   for (const locale of locales) validateLocale(locale);
+  const intlProblems = intlLocaleDiagnostics(options, locales).diagnostics;
+  if (intlProblems.length) throw new CompileError(intlProblems);
   const parsed = new Map<string, Map<string, Message>>();
   const inputs: CompilationState['inputs'] = new Map();
   // ICU parsing is locale-independent except for date/time skeleton hour
@@ -1837,7 +1926,8 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
     cache.set(source, { ast: message.ast!, args: message.args, text: message.text });
     return message;
   };
-  let sameContract = previous !== undefined && previous.baseLocale === options.baseLocale && previous.missing === options.missing && previous.parsed.size === locales.length;
+  const declared = declaredKey(options.arguments);
+  let sameContract = previous !== undefined && previous.baseLocale === options.baseLocale && previous.missing === options.missing && previous.declared === declared && previous.parsed.size === locales.length;
   for (const locale of locales) {
     const catalog = options.catalogs[locale]!;
     const old = previous?.parsed.get(locale);
@@ -1911,7 +2001,7 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
       // Complete validation has proved the same ID set. Copying its sorted map
       // preserves canonical order while replacing only a bounded set of edits.
       const messages = new Map(old);
-      const intlLocale = new Intl.Locale(locale);
+      const intlLocale = new Intl.Locale(intlTag(options, locale));
       let sameArguments = true;
       for (const change of comparison.changes.sort((a, b) => compare(a.id, b.id))) {
         const cached = old.get(change.id)!;
@@ -1934,7 +2024,7 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
       continue;
     }
     const contracts = reusable ? new Set<Map<string, Argument>>() : undefined;
-    const intlLocale = new Intl.Locale(locale);
+    const intlLocale = new Intl.Locale(intlTag(options, locale));
     let matched = 0;
     const messages = new Map<string, Message>();
     for (const id of ids) {
@@ -1985,6 +2075,12 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
     // Map#forEach visits these whole catalogs without an entry pair per message.
     base.forEach((message, id) => { schema.set(id, message.args); });
     const merged = new Set<string>();
+    if (options.arguments) for (const id of Object.keys(options.arguments)) {
+      const contract = schema.get(id);
+      if (!contract) fail('UNKNOWN_MESSAGE', 'arguments declares arguments for a message that is not in the base catalog.', { locale: options.baseLocale, messageId: id });
+      schema.set(id, declaredContract(id, contract, options.arguments[id]!, options.baseLocale));
+      merged.add(id);
+    }
     for (const locale of locales) {
       if (locale === options.baseLocale) continue;
       const messages = parsed.get(locale)!;
@@ -1998,7 +2094,7 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
           merged.add(id);
         }
         for (const [name, arg] of message.args) {
-          if (!contract.has(name)) fail('UNKNOWN_ARGUMENT', `Translation introduces ${quote(name)}, which is absent from the base message.`, argumentContext(message, name));
+          if (!contract.has(name)) fail('UNKNOWN_ARGUMENT', `Translation introduces ${quote(name)}, which is absent from the base message.`, { hint: unknownArgumentHint(id, name, locale), ...argumentContext(message, name) });
           mergeArgument(contract, name, arg, { locale, messageId: id }, message);
         }
       });
@@ -2051,7 +2147,7 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
   // Artifact mode changes which locale modules are retained. Include it in
   // the incremental output key so a loader-only run cannot be reused as an
   // empty public locale when the same session switches back to typed/runtime.
-  const memoKey = incremental ? optionKey([!!options.development, options.timeZone, options.formats, options.includeSources, options.artifacts]) : undefined;
+  const memoKey = incremental ? optionKey([!!options.development, options.timeZone, options.formats, options.includeSources, options.artifacts, options.intlLocales]) : undefined;
   // Compilation-local only: unchanged emissions need no validation work, and
   // sessions do not retain another growing cache of old contracts.
   const validations = options.development ? new Map<Map<string, Argument>, string>() : undefined;
@@ -2162,7 +2258,7 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
     const scope = prefix.startsWith('scopes/') ? prefix.slice('scopes/'.length, -1) : undefined;
     const included = scope !== undefined && options.development && options.checkedScopes?.includes(scope) ? new Set(ids) : undefined;
     const guard = included && { scope: scope!, outside: [...base.keys()].filter(id => !included.has(id)) };
-    const loader = renderLoader(locales, options.baseLocale, ids, options.includeSources !== undefined, publicLocales, guard);
+    const loader = renderLoader(locales, options.baseLocale, ids, options.includeSources !== undefined, publicLocales, guard, options.intlLocales);
     files[`${prefix}index.js`] = loader.js;
     if (typed) files[`${prefix}index.d.ts`] = loader.dts;
   }
@@ -2171,5 +2267,5 @@ function compile(options: CompilerOptions, previous?: CompilationState, emission
     group(`scopes/${scope}/`, scopeIds(scope, patterns, [...base.keys()], base));
   }
   files['package.json'] = '{"type":"module","sideEffects":false}\n';
-  return { project: { files, locales, groups, warnings }, state: { parsed, inputs, schema, baseLocale: options.baseLocale, missing: options.missing, warnings, outputs, types, groupIds, argumentPool, argumentKeys, emissions } };
+  return { project: { files, locales, groups, warnings }, state: { parsed, inputs, schema, baseLocale: options.baseLocale, missing: options.missing, declared, warnings, outputs, types, groupIds, argumentPool, argumentKeys, emissions } };
 }

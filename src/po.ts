@@ -150,6 +150,8 @@ export interface SerializePoOptions {
   readonly missing?: 'fallback' | 'error';
   readonly formats?: Formats;
   readonly timeZone?: string;
+  /** The BCP 47 tag that `Intl` and translation tools know a locale by, when its code means another language. */
+  readonly intlLocales?: Readonly<Record<string, string>>;
   /** Notes about messages, by message ID. Each becomes extracted comments (`#.`) on its entry. */
   readonly notes?: Readonly<Record<string, string>>;
 }
@@ -243,7 +245,29 @@ function pureSetMessage(catalog: Catalog, id: string, preferredPath: readonly st
 }
 
 function pureCompilerOptions(options: SerializePoOptions, catalogs: Record<string, Catalog>): Parameters<typeof checkProject>[0] {
-  return { baseLocale: options.baseLocale, catalogs, missing: options.missing ?? 'fallback', formats: options.formats, timeZone: options.timeZone };
+  return { baseLocale: options.baseLocale, catalogs, missing: options.missing ?? 'fallback', formats: options.formats, timeZone: options.timeZone, intlLocales: options.intlLocales };
+}
+
+const tagOf = (locale: string, intlLocales: Readonly<Record<string, string>> | undefined): string =>
+  intlLocales && Object.hasOwn(intlLocales, locale) ? intlLocales[locale]! : locale;
+
+/** The PO header fields. `Language` and `X-Source-Language` carry the tags translation tools
+ * read; a locale whose code means another language also keeps its code in `X-Nordbeam-Locale`. */
+export function poHeaderLines(locale: string, baseLocale: string, intlLocales?: Readonly<Record<string, string>>): string[] {
+  const tag = tagOf(locale, intlLocales);
+  return [`Language: ${tag}\n`, ...tag !== locale ? [`X-Nordbeam-Locale: ${locale}\n`] : [], 'MIME-Version: 1.0\n', 'Content-Type: text/plain; charset=UTF-8\n', 'Content-Transfer-Encoding: 8bit\n', 'X-Nordbeam-Locale-Format: 1\n', `X-Source-Language: ${tagOf(baseLocale, intlLocales)}\n`].map(quotePo);
+}
+
+/** Check that a PO document's locale headers name the target and the base locale, by code or by tag. */
+export function checkPoLocales(po: PoDocument, locale: string, baseLocale: string, intlLocales: Readonly<Record<string, string>> | undefined, file?: string): void {
+  const language = po.headers.get('language'), code = po.headers.get('x-nordbeam-locale'), tag = tagOf(locale, intlLocales);
+  if (language !== locale && language !== tag) poError('PO_LOCALE_MISMATCH', `PO Language is ${JSON.stringify(language ?? '')}; expected ${JSON.stringify(tag)}.`, file);
+  if (code !== undefined && code !== locale) poError('PO_LOCALE_MISMATCH', `PO X-Nordbeam-Locale is ${JSON.stringify(code)}; expected ${JSON.stringify(locale)}.`, file);
+  if (!/^text\/plain\s*;\s*charset\s*=\s*"?utf-8"?\s*$/i.test(po.headers.get('content-type') ?? '')) poError('PO_ENCODING', 'PO Content-Type must declare text/plain; charset=UTF-8.', file);
+  const version = po.headers.get('x-nordbeam-locale-format') ?? po.headers.get('x-nordbeam-i18n-format') ?? po.headers.get('x-fasti18n-format');
+  if (version !== undefined && version !== '1') poError('PO_VERSION', `Unsupported PO transport version ${JSON.stringify(version)}.`, file);
+  const source = po.headers.get('x-source-language');
+  if (source !== undefined && source !== baseLocale && source !== tagOf(baseLocale, intlLocales)) poError('PO_BASE_LOCALE', 'PO source language does not match the project base locale.', file);
 }
 
 /** Serialize catalogs already held in memory; no filesystem access is performed. */
@@ -269,7 +293,7 @@ export function serializePo(options: SerializePoOptions): SerializePoResult {
     '# msgctxt is a stable message ID. Do not change it.',
     '# An empty msgstr is untranslated. Add the nordbeam-locale:empty marker for intentional empty text.',
     'msgid ""', 'msgstr ""',
-    ...[`Language: ${options.locale}\n`, 'MIME-Version: 1.0\n', 'Content-Type: text/plain; charset=UTF-8\n', 'Content-Transfer-Encoding: 8bit\n', 'X-Nordbeam-Locale-Format: 1\n', `X-Source-Language: ${options.baseLocale}\n`].map(quotePo),
+    ...poHeaderLines(options.locale, options.baseLocale, options.intlLocales),
   ];
   for (const [id, source] of [...baseIndex].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     const translation = targetIndex.get(id);
@@ -286,13 +310,7 @@ export function mergePo(options: MergePoOptions): MergePoResult {
   pureLocaleName(options.baseLocale); pureLocaleName(options.locale);
   if (options.baseLocale === options.locale) poError('PO_BASE_LOCALE', 'Choose a target locale different from the base locale. Edit source messages in the base JSON catalog.');
   const po = typeof options.po === 'string' ? parsePo(options.po) : options.po;
-  const language = po.headers.get('language');
-  if (language !== options.locale) poError('PO_LOCALE_MISMATCH', `PO Language is ${JSON.stringify(language ?? '')}; expected ${JSON.stringify(options.locale)}.`);
-  if (!/^text\/plain\s*;\s*charset\s*=\s*"?utf-8"?\s*$/i.test(po.headers.get('content-type') ?? '')) poError('PO_ENCODING', 'PO Content-Type must declare text/plain; charset=UTF-8.');
-  const version = po.headers.get('x-nordbeam-locale-format') ?? po.headers.get('x-nordbeam-i18n-format') ?? po.headers.get('x-fasti18n-format');
-  if (version !== undefined && version !== '1') poError('PO_VERSION', `Unsupported PO transport version ${JSON.stringify(version)}.`);
-  const sourceLocale = po.headers.get('x-source-language');
-  if (sourceLocale !== undefined && sourceLocale !== options.baseLocale) poError('PO_BASE_LOCALE', 'PO source language does not match the project base locale.');
+  checkPoLocales(po, options.locale, options.baseLocale, options.intlLocales);
   const base = options.catalogs[options.baseLocale];
   if (!base) poError('BASE_LOCALE_MISSING', `No catalog for base locale ${JSON.stringify(options.baseLocale)}.`);
   const catalogs: Record<string, Catalog> = Object.create(null);

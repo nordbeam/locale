@@ -62,7 +62,7 @@ A scope can be computed from code instead: `{ "scopes": { "site": { "modules": [
 
 ## Config worth knowing
 
-The accepted keys are `baseLocale`, `catalogs`, `outDir`, `missing` (`"fallback"` or `"error"`; `"error"` fails on untranslated keys without `--strict`), `formats` (named `number`, `date` and `time` styles from `Intl` options), `timeZone` (pin it for deterministic date/time output), `scopes`, `artifacts` (`typed` default, `runtime`, `loader`, `loader-typed`), `includeSources`, `shareLiterals`, `cache`, `persistentCache`, `selectionFallback`, `shareMessages`, `preloadManifest`, `staticLocale`, `lockedKeys` and `ignoredKeys`. An unknown key is `INVALID_CONFIG`. Full list: https://github.com/nordbeam/locale/blob/main/docs/reference/config.md The `schema` command writes JSON schemas so editors validate catalogs and the config.
+The accepted keys are `baseLocale`, `catalogs`, `outDir`, `missing` (`"fallback"` or `"error"`; `"error"` fails on untranslated keys without `--strict`), `formats` (named `number`, `date` and `time` styles from `Intl` options), `timeZone` (pin it for deterministic date/time output), `intlLocales` (`{ "se": "sv" }` formats a locale code that means another language to `Intl` as that tag; the generated index then exports `intlLocales` for routing and app code), `scopes`, `artifacts` (`typed` default, `runtime`, `loader`, `loader-typed`), `includeSources`, `shareLiterals`, `cache`, `persistentCache`, `selectionFallback`, `shareMessages`, `preloadManifest`, `staticLocale`, `lockedKeys` and `ignoredKeys`. An unknown key is `INVALID_CONFIG`. Full list: https://github.com/nordbeam/locale/blob/main/docs/reference/config.md The `schema` command writes JSON schemas so editors validate catalogs and the config.
 
 ## Tests
 
@@ -77,6 +77,8 @@ const rendered = await testI18n.localeMatrix(locales, loadLocale, messages => me
 ```
 
 `keyFromSelector` keeps tests refactor-safe; `localeMatrix` exercises every locale. Use a fixed `timeZone` and stable dates for snapshots, and assert through message functions rather than snapshotting generated files.
+
+For component tests: `import en from './src/i18n/locales/en.js'` renders the real text; `messageIds(en)` renders every message as its ID; `withMessages(en, { 'checkout.title': 'Pay now', ...await compileMessages({ 'cart.total': 'Total: {amount, number}' }) })` replaces a few (literal text, a function with the message's arguments, or ICU compiled in memory). Do not spread a messages object to override one: top-level namespaces are not enumerable.
 
 ## CI
 

@@ -429,6 +429,14 @@ The configuration file is unreadable, is not valid JSON, or contains a value tha
 
 **Fix:** Fix the reported field in the configuration file. nordbeam-locale schema writes an editor schema that flags these values as you type.
 
+### INVALID_DECLARED_ARGUMENT
+
+Severity: error.
+
+The arguments option declares an argument with a name that is not an identifier or a kind other than value, number or date.
+
+**Fix:** Declare each argument as "value" (a plain {name}), "number" or "date".
+
 ### INVALID_FORMAT
 
 Severity: error.
@@ -460,6 +468,14 @@ Severity: error.
 A message key is empty or otherwise cannot be a message ID.
 
 **Fix:** Give the message a non-empty dotted ID, such as checkout.pay.
+
+### INVALID_INTL_LOCALE
+
+Severity: error.
+
+An intlLocales value is not a canonical BCP 47 tag, so Intl cannot format the locale with it. The locale is not compiled.
+
+**Fix:** Map the locale to a canonical tag such as sv, nb or pt-BR.
 
 ### INVALID_LOCALE
 
@@ -517,6 +533,38 @@ A compiled Lingui entry could not be converted, so it was not migrated.
 
 **Fix:** Migrate the source catalog instead of the compiled output.
 
+### LINGUI_OBSOLETE_INCLUDED
+
+Severity: warning.
+
+Obsolete (`#~`) PO entries were migrated, because Lingui 3 compiles and renders them. The warning counts them and lists their IDs in `messageIds`.
+
+**Fix:** Run nordbeam-locale prune after the source migration to find the ones no code uses.
+
+### LINGUI_PO_QUOTES
+
+Severity: warning.
+
+Lingui-written PO lines had unescaped interior quotes; they were read as Lingui reads them, as the text between the first and last quote.
+
+**Fix:** Escape the quotes in the PO file if other gettext tools read it.
+
+### LINGUI_SOURCE_ID_TEXT
+
+Severity: warning.
+
+A source-locale message had no text, so its ID became its text, which is what Lingui rendered. This covers an empty `msgstr` in the source locale and, under migrate-project, a message only translations hold.
+
+**Fix:** Write the text the message should show in the source locale.
+
+### LINGUI_WHITESPACE_TRIMMED
+
+Severity: warning.
+
+Leading or trailing whitespace was trimmed from messages with arguments, as Lingui trims them when it renders. Messages without arguments keep their whitespace, as in Lingui.
+
+**Fix:** Put intended spacing in the surrounding markup instead of the message.
+
 ### LOCALE_MISSING
 
 Severity: error.
@@ -564,6 +612,14 @@ Severity: error.
 Two input keys map to the same message ID, one nested and one flat.
 
 **Fix:** Rename one of the keys so that every message ID is unique.
+
+### MIGRATION_ID_RENAMED
+
+Severity: warning.
+
+A message ID could not nest as written (a message that is also a namespace, or an empty or space-edged segment), so it was renamed: `toast` next to `toast.action` becomes `toast.message`, and `Try again later.` becomes `Try again later`. The warning carries the `renamed` map; migrate-project applies the same renames in every locale and to the calls it rewrites.
+
+**Fix:** Use the new ID. migrate-project rewrites the calls; after migrate alone, rename them in the source.
 
 ### MIGRATION_INTERPOLATION_REVIEW
 
@@ -644,6 +700,14 @@ Severity: error.
 The migration source could not be read.
 
 **Fix:** Check the --from path and that the file is valid for its format.
+
+### MIGRATION_TEXT_CHANGED
+
+Severity: warning.
+
+A converted message reads differently from its source once tags and arguments are normalized, for example a lost apostrophe or dropped text. The warning names the message in `messageId`.
+
+**Fix:** Compare the message with its source and correct the converted catalog.
 
 ### MIGRATION_UNESCAPED_INTERPOLATION
 
@@ -909,6 +973,14 @@ The PO transport version is not supported by this release.
 
 **Fix:** Re-export the file with this version of nordbeam-locale.
 
+### QUOTED_RUN_APOSTROPHE
+
+Severity: warning.
+
+Quoted text in a message holds `''` right before ICU syntax, as in `'<br/>''<br/>'`. ICU reads that as one quoted run with an apostrophe in it, so the page shows `<br/>'<br/>`. It usually comes from quoting two pieces of syntax, such as HTML tags, one by one and putting them side by side. `doctor` reports it. An apostrophe followed by text, as in `'{name}''s'`, is not reported.
+
+**Fix:** Quote adjacent syntax as one run, '{a}{b}' rather than '{a}''{b}', or end the quote before an apostrophe that should show.
+
 ### READ_ONLY_FILE
 
 Severity: warning.
@@ -1027,7 +1099,15 @@ Severity: error.
 
 A translation uses an argument that the base message does not declare.
 
-**Fix:** Remove the argument from the translation, or declare it in the base message.
+**Fix:** Remove the argument from the translation, or use it in the base message. When the call passes it and only the base text leaves it out, declare it for the message under "arguments" in the config.
+
+### UNKNOWN_INTL_LOCALE
+
+Severity: error.
+
+intlLocales maps a locale that has no catalog, so the entry has no effect. A misspelled locale here leaves the intended one formatting as another language.
+
+**Fix:** Correct the locale so it names a catalog file, or remove the entry.
 
 ### UNKNOWN_MESSAGE
 

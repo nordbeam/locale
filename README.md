@@ -303,13 +303,17 @@ console.log(m.greeting({ name: 'Ada' })); // Hello Ada!
 Every diagnostic has a code. Explain it with `npx nordbeam-locale explain <CODE>`;
 the causes and fixes are in [errors](docs/reference/errors.md).
 
-`init` adds `"prebuild": "nordbeam-locale"` to `package.json`, so generation runs
-before each build. It does not use `prepare`, which runs on every `npm install`,
-including production installs where the CLI is not present.
+`init` adds `"prebuild": "nordbeam-locale --production"` to `package.json`, so
+production output is generated before each build. It does not use `prepare`,
+which runs on every `npm install`, including production installs where the CLI
+is not present. It also adds the generated directory to `.eslintignore`,
+`.prettierignore`, `.oxlintrc.json` and `.oxfmtrc.json` when they exist, and
+says what to add to a flat `eslint.config.*` or a Biome config.
 
-Set `NODE_ENV=production` in production build scripts. When `NODE_ENV` is unset,
-the generated modules include development argument guards. The
-[guide](docs/GUIDE.md#development-and-production-output) explains the rule.
+Set `NODE_ENV=production` or pass `--production` in other production build
+scripts. When `NODE_ENV` is unset, the generated modules include development
+argument guards. The [guide](docs/GUIDE.md#development-and-production-output)
+explains the rule.
 
 ## For coding agents
 

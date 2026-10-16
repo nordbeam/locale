@@ -4,6 +4,8 @@
  * @nordbeam/locale-migrate at exactly the same version.
  */
 export { checkProject, compileProject, CompileError } from './compiler.js';
+export { parse as parseIcuMessage } from '@formatjs/icu-messageformat-parser';
+export type { MessageFormatElement as IcuMessageElement } from '@formatjs/icu-messageformat-parser';
 export { staticScopes } from './scope-modules.js';
 export type { Catalog, Diagnostic } from './compiler.js';
 export { discoverConfig, readConfig } from './config.js';

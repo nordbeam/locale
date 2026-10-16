@@ -6,7 +6,7 @@ import { CompileError, compileProject } from './compiler.js';
 import type { Catalog, CompiledProject, Diagnostic } from './compiler.js';
 import { describeCatalog } from './contracts.js';
 import type { MessageContract } from './contracts.js';
-import { inspectProject } from './inspect.js';
+import { inspectProject, inspectScope } from './inspect.js';
 import { coreVersion } from './migrate-loader.js';
 import { readNotes } from './notes.js';
 import type { Notes } from './notes.js';
@@ -54,6 +54,11 @@ export interface ReportScope {
   readonly modules?: readonly string[];
   /** The scope's generated module per locale. */
   readonly sizes?: Readonly<Record<string, ReportSize>>;
+  /** Source files the crawl of a computed scope read, and how many of them it reached through a dynamic `import()`. */
+  readonly files?: number;
+  readonly dynamicFiles?: number;
+  /** How many messages the scope would hold with `"dynamicImports": false`, when it follows them now. */
+  readonly withoutDynamicImports?: number;
 }
 
 export interface ReportNamespace {
@@ -436,13 +441,20 @@ export async function buildReport(options: BuildReportOptions, configFile: strin
   }
   const memberOf = new Map<string, string[]>();
   for (const [name, members] of scopeIds) for (const id of members) { const list = memberOf.get(id); if (list) list.push(name); else memberOf.set(id, [name]); }
+  // The crawl's trace shows what a computed scope reads, and what stopping at dynamic imports would leave.
+  const traces = new Map<string, Pick<ReportScope, 'files' | 'dynamicFiles' | 'withoutDynamicImports'>>();
+  for (const name of scopeIds.keys()) if (isModuleScope(options.scopes?.[name])) {
+    const scope = await inspectScope({ ...options, root }, name).catch(() => undefined);
+    if (scope?.files) traces.set(name, { files: scope.files.length, dynamicFiles: scope.files.filter(file => file.dynamic).length,
+      ...(scope.withoutDynamicImports === undefined ? {} : { withoutDynamicImports: scope.withoutDynamicImports }) });
+  }
   const scopes: ReportScope[] = [...scopeIds].sort(([a], [b]) => compare(a, b)).map(([name, members]) => {
     const configured = options.scopes?.[name];
     const sizes: Record<string, ReportSize> = {};
     for (const locale of locales) { const module = project?.files[`scopes/${name}/internal/locales/${locale.locale}.js`]; if (module) sizes[locale.locale] = size(module); }
     return {
       name, kind: isModuleScope(configured) ? 'modules' : 'messages', messages: members.length, share: ids.length ? members.length / ids.length : 0,
-      ...(isModuleScope(configured) ? { modules: [...configured.modules] } : {}), ...(Object.keys(sizes).length ? { sizes } : {}),
+      ...(isModuleScope(configured) ? { modules: [...configured.modules] } : {}), ...(Object.keys(sizes).length ? { sizes } : {}), ...traces.get(name),
     };
   });
 

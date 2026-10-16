@@ -287,3 +287,19 @@ test('the hydrate hook waits for the catalog of the server-rendered page, and ne
     delete globalThis.document;
   }
 });
+
+test('a locale mapped by intlLocales renders its tag as lang, and the browser reads it back', async () => {
+  const { router } = app({ intlLocales: { de: 'de-CH' } });
+  assert.match(await render(router('/de')), /^<html lang="de-CH" dir="ltr">/);
+  assert.match(await render(router('/')), /^<html lang="en" dir="ltr">/);
+  const routing = defineRouting({ locales: ['en', 'de'], defaultLocale: 'en', localePrefix: 'as-needed', intlLocales: { de: 'de-CH' } });
+  const loads = [];
+  const i18n = createTanStackStartI18n({ routing, loadLocale: async locale => { loads.push(locale); return { locale, messages: catalogs[locale] }; } });
+  globalThis.document = { documentElement: { lang: 'de-CH' } };
+  try {
+    await i18n.routerOptions().hydrate();
+    assert.deepEqual(loads, ['de']);
+  } finally {
+    delete globalThis.document;
+  }
+});

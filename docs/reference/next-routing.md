@@ -193,12 +193,31 @@ segments before `[param]`, `[param]` before `[...catch-all]`, and then the
 shorter pattern. Two patterns with the same shape in one locale are rejected at
 `defineRouting`.
 
+## Locale codes that mean another language
+
+When the config maps a locale with
+[`intlLocales`](../GUIDE.md#locale-codes-that-mean-another-language), such as
+`{ "se": "sv" }` for a Swedish `se`, pass the generated map to the routing:
+
+```ts
+import { intlLocales, locales } from '@/i18n';
+
+export const routing = defineRouting({ locales, defaultLocale: 'en', intlLocales });
+```
+
+`Accept-Language` then matches the tag, so `sv-SE` selects `se` and a request
+for Northern Sami (`se`) does not, and the alternate `Link` header writes
+`hreflang="sv"`. URL prefixes, the locale cookie and the locale the app sees
+keep the code. `intlLocaleOf(routing, locale)` returns the tag, for
+`<html lang>`, sitemaps and your own `hreflang` links.
+
 ## Validation
 
 `defineRouting` throws a `TypeError` for an invalid routing object: an empty
 `locales` list, a `defaultLocale` that is not listed, duplicate locales, a bad
-pattern, a variant for an unknown locale, mismatched params, or an ambiguous
-pair. The middleware and navigation factories validate the same way.
+pattern, a variant for an unknown locale, mismatched params, an ambiguous
+pair, or an `intlLocales` value that is not a canonical BCP 47 tag. The
+middleware and navigation factories validate the same way.
 
 ## Types
 
@@ -215,6 +234,8 @@ pair. The middleware and navigation factories validate the same way.
 - `domainRouting(routing, host)` is the routing a host is served with, or
   `undefined` for an unknown host. `servingDomain(routing, locale)` is the first
   domain that serves a locale.
+- `intlLocaleOf(routing, locale)` is the locale's `intlLocales` tag, or the
+  locale itself.
 
 ## Domains
 

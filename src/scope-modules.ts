@@ -16,6 +16,8 @@ export interface ModuleScope {
   readonly modules: readonly string[];
   /** Globs of files the crawl neither reads nor follows, such as a generated route tree that imports every route. */
   readonly exclude?: readonly string[];
+  /** `false` stops the crawl at dynamic imports, for code split off behind a boundary that loads the full catalog. Default `true`. */
+  readonly dynamicImports?: boolean;
   readonly messages?: readonly string[];
 }
 export type ScopeConfig = readonly string[] | ModuleScope;
@@ -140,7 +142,16 @@ async function resolveFile(base: string): Promise<string | undefined> {
   for (const extension of sourceExtensions) if (await isFile(join(base, `index${extension}`))) return join(base, `index${extension}`);
 }
 
-const importPattern = /(?:\bimport\s*(?:[\w*{}\s,$]+\s*from\s*)?|\bexport\s*(?:type\s+)?(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)(["'])([^"'\n]+)\1/g;
+// Group 1 is set for a dynamic `import(…)`. Imported names may be any identifier (`import { Sökförslag } from …`).
+const importPattern = /(?:\bimport\s*(?:[\p{ID_Continue}$*{}\s,]+\s*from\s*)?|\bexport\s*(?:type\s+)?(?:\*(?:\s+as\s+[\p{ID_Continue}$]+)?|\{[^}]*\})\s*from\s*|\b(import)\s*\(\s*|\brequire\s*\(\s*)(["'])([^"'\n]+)\2/gu;
+
+// Identifiers as JavaScript reads them, so `m.för()` and `m.Sökförslag()` are chains too.
+const name = String.raw`[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*`;
+// A computed segment with a string key: `m.video['för']`, `m.video?.["för"]`.
+const keyed = String.raw`\[\s*(?:'[^'\\\n]*'|"[^"\\\n]*")\s*\]`;
+const chainPattern = new RegExp(String.raw`(?<![\p{ID_Continue}$.\u200c\u200d])${name}(?:\??\.${name}|(?:\?\.)?${keyed})+`, 'gu');
+const segmentPattern = new RegExp(String.raw`${name}|\[\s*(?:'([^'\\\n]*)'|"([^"\\\n]*)")\s*\]`, 'gu');
+const templatePrefix = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d-]*\./u;
 
 /** The message IDs a module names. Patterns from template literals are matched against every ID. */
 function namedIds(code: string, ids: ReadonlySet<string>, all: readonly string[], found: Set<string>): void {
@@ -153,14 +164,14 @@ function namedIds(code: string, ids: ReadonlySet<string>, all: readonly string[]
     if (!text.includes('${')) { if (ids.has(text)) found.add(text); continue; }
     const parts = text.split(/\$\{[^}]*\}/);
     // `checkout.${step}.title`: the literal start must already name a message ID prefix.
-    if (!/^[A-Za-z_$][\w$-]*\./.test(parts[0]!)) continue;
+    if (!templatePrefix.test(parts[0]!)) continue;
     const pattern = new RegExp(`^${parts.map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+')}$`);
     for (const id of all) if (pattern.test(id)) found.add(id);
   }
   // m.checkout.title: every run of segments names a candidate ID. The first segment is
   // usually the messages variable, but a destructured namespace (`checkout.title`) starts there.
-  for (const match of code.matchAll(/(?<![\w$.])[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)+/g)) {
-    const segments = match[0].replace(/\?\./g, '.').split('.');
+  for (const match of code.matchAll(chainPattern)) {
+    const segments = [...match[0].matchAll(segmentPattern)].flatMap(segment => (segment[1] ?? segment[2] ?? segment[0]).split('.'));
     for (let start = 0; start < segments.length; start++) {
       for (let end = start + 1; end <= segments.length; end++) {
         const id = segments.slice(start, end).join('.');
@@ -174,6 +185,27 @@ export interface ScopeModulesResult {
   readonly ids: string[];
   /** Every source file read, for watchers. */
   readonly files: string[];
+  /** With `trace`: how the crawl reached each file and which file first names each ID. */
+  readonly trace?: ScopeTrace;
+}
+
+/** Why a scope holds what it holds. Paths are absolute. */
+export interface ScopeTrace {
+  /** Each file read, with the file that imported it first (absent for a file that `modules` matches). */
+  readonly files: ReadonlyMap<string, { readonly from?: string; readonly dynamic: boolean }>;
+  /** Each message ID in the scope, with the files that name it, in crawl order. */
+  readonly ids: ReadonlyMap<string, readonly string[]>;
+}
+
+/** The import chain from a `modules` file to `file`, first file first. */
+export function importChain(trace: ScopeTrace, file: string): { file: string; dynamic: boolean }[] {
+  const chain: { file: string; dynamic: boolean }[] = [];
+  for (let current: string | undefined = file; current !== undefined && chain.length <= trace.files.size;) {
+    const entry = trace.files.get(current);
+    chain.unshift({ file: current, dynamic: entry?.dynamic ?? false });
+    current = entry?.from;
+  }
+  return chain;
 }
 
 /** The message IDs that a module names, found the way module scopes find them. */
@@ -184,7 +216,7 @@ export function sourceMessageIds(code: string, ids: readonly string[], known: Re
 }
 
 /** The base catalog IDs that the files matched by `modules`, and the files they import, name. */
-export async function moduleScopeIds(options: { root: string; scope: string; modules: readonly string[]; exclude?: readonly string[]; ids: readonly string[]; outDir: string }): Promise<ScopeModulesResult> {
+export async function moduleScopeIds(options: { root: string; scope: string; modules: readonly string[]; exclude?: readonly string[]; dynamicImports?: boolean; ids: readonly string[]; outDir: string; trace?: boolean }): Promise<ScopeModulesResult> {
   const root = resolve(options.root);
   const outDir = resolve(root, options.outDir);
   const excluded = (options.exclude ?? []).map(glob => globPattern(glob.replace(/\\/g, '/').replace(/^\.\//, '')));
@@ -193,15 +225,18 @@ export async function moduleScopeIds(options: { root: string; scope: string; mod
   const ids = new Set(options.ids);
   const aliases = await tsconfigAliases(root);
   const queue: string[] = [];
+  const files = new Map<string, { from?: string; dynamic: boolean }>();
   for (const glob of options.modules) {
     const matched = await globFiles(root, glob, generated);
     if (!matched.length) {
       throw new CompileError([{ code: 'SCOPE_MODULE_NOT_FOUND', message: `Scope "${options.scope}" module pattern "${glob}" matches no files.` }]);
     }
     queue.push(...matched);
+    for (const file of matched) if (!files.has(file)) files.set(file, { dynamic: false });
   }
   const reached = new Set<string>();
   const found = new Set<string>();
+  const namedBy = new Map<string, string[]>();
   async function target(specifier: string, from: string): Promise<string | undefined> {
     const bare = specifier.split(/[?#]/)[0]!;
     if (!bare || bare.startsWith('node:') || bare.startsWith('virtual:') || bare.startsWith('\0')) return;
@@ -223,14 +258,25 @@ export async function moduleScopeIds(options: { root: string; scope: string; mod
     reached.add(file);
     let code: string;
     try { code = await readFile(file, 'utf8'); } catch { continue; }
-    namedIds(code, ids, options.ids, found);
+    if (options.trace) {
+      const own = new Set<string>();
+      namedIds(code, ids, options.ids, own);
+      for (const id of own) { found.add(id); namedBy.get(id)?.push(file) ?? namedBy.set(id, [file]); }
+    } else namedIds(code, ids, options.ids, found);
     if (file.endsWith('.json')) continue;
     for (const match of code.matchAll(importPattern)) {
-      const next = await target(match[2]!, file);
-      if (next && !reached.has(next)) queue.push(next);
+      const dynamic = match[1] !== undefined;
+      if (dynamic && options.dynamicImports === false) continue;
+      const next = await target(match[3]!, file);
+      if (!next || reached.has(next)) continue;
+      queue.push(next);
+      if (!files.has(next)) files.set(next, { from: file, dynamic });
     }
   }
-  return { ids: options.ids.filter(id => found.has(id)).sort(), files: [...reached].sort() };
+  const result = { ids: options.ids.filter(id => found.has(id)).sort(), files: [...reached].sort() };
+  if (!options.trace) return result;
+  for (const file of files.keys()) if (!reached.has(file)) files.delete(file);
+  return { ...result, trace: { files, ids: new Map(result.ids.map(id => [id, namedBy.get(id) ?? []])) } };
 }
 
 /** Resolve module scopes to the message IDs their code names, plus their `messages` patterns. */
@@ -244,7 +290,7 @@ export async function resolveModuleScopes(options: { root?: string; outDir?: str
     if (!isModuleScope(scope)) { scopes[name] = scope; continue; }
     if (!baseIds) { if (scope.messages?.length) scopes[name] = scope.messages; continue; }
     try {
-      const result = await moduleScopeIds({ root: options.root ?? '.', scope: name, modules: scope.modules, exclude: scope.exclude, ids: baseIds, outDir: options.outDir ?? 'src/i18n' });
+      const result = await moduleScopeIds({ root: options.root ?? '.', scope: name, modules: scope.modules, exclude: scope.exclude, dynamicImports: scope.dynamicImports, ids: baseIds, outDir: options.outDir ?? 'src/i18n' });
       for (const file of result.files) files.add(file);
       const patterns = [...(scope.messages ?? []), ...result.ids];
       if (!patterns.length) {

@@ -28,3 +28,14 @@ data, with a `summary`, capped lists, and paths relative to one absolute `root`.
 which are missing or untranslated, its arguments and their types, each locale's
 source text, the line and column of each entry in its catalog file, and the
 access expression in the generated module.
+
+`inspectScope(options, name, id?)` explains one configured scope. For a scope
+computed from code it returns the files the crawl read (`files[]`, each with the
+file that imported it first in `from`, `dynamic` when it was reached through a
+dynamic `import()`, and the number of the scope's messages it is the first to
+name), `withoutDynamicImports` (how many messages the scope would hold with
+`"dynamicImports": false`), and with `id` a `message` whose `chain` is the import
+chain from a `modules` file to the first file that names it. It returns
+`undefined` for a scope the config does not define. `inspect --scope <name>
+[--id <id>] --json` prints it with project-relative paths and `files` capped by
+`--limit`.

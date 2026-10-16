@@ -44,7 +44,7 @@ A one-liner for counts by skip code:
 node -e "const j=require('/tmp/nordbeam-preview.json');const c={};for(const s of j.codemod.skipped)c[s.code]=(c[s.code]||0)+1;console.log(j.ok,j.catalogs.map(x=>x.locale+':'+x.messageCount),j.codemod.replacements,c)"
 ```
 
-If the preview fails with `COMMAND_FAILED`, the message names the catalog and cause (`MIGRATION_INVALID_ICU`, `MIGRATION_ID_COLLISION`, `MIGRATION_LAYOUT_COLLISION`, `MIGRATION_OUTPUT_EXISTS`): fix the input, not the tool. One malformed message blocks the whole run, so repair it in a working copy of the legacy catalog and re-run.
+If the preview fails with `COMMAND_FAILED`, the message names the catalog and cause (`MIGRATION_INVALID_ICU`, `MIGRATION_ID_COLLISION`, `MIGRATION_LAYOUT_COLLISION`, `MIGRATION_OUTPUT_EXISTS`): fix the input, not the tool. One malformed message blocks the whole run; `errors` lists every failing message with its `locale` and `messageId`, so repair them all in a working copy of the legacy catalog and re-run.
 
 ## 3. Review with the user
 

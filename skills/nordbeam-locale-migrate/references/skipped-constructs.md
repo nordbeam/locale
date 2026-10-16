@@ -32,7 +32,7 @@ The preview and the codemod report every construct they refused to rewrite as `c
 
 | Code | What to do |
 | --- | --- |
-| `MIGRATION_INVALID_ICU` (inside `COMMAND_FAILED`) | A message is not valid ICU after conversion (`{{x}}` interpolation in a non-i18next format, stray braces). Fix the legacy catalog in a working copy, or pick the right `--catalog-format`. |
+| `MIGRATION_INVALID_ICU` (after `COMMAND_FAILED` in `errors`, one per message with `locale` and `messageId`) | A message is not valid ICU after conversion (`{{x}}` interpolation in a non-i18next format, stray braces). Fix the legacy catalog in a working copy, or pick the right `--catalog-format`. |
 | `MIGRATION_ID_COLLISION`, `MIGRATION_LAYOUT_COLLISION`, `MIGRATION_INVALID_KEY` (errors) | Two keys map to one ID, a string collides with an object at the same path, or a key is empty. Rename one in the source catalog. |
 | `MIGRATION_OUTPUT_EXISTS`, `FILE_EXISTS` (exit 4) | The destination exists; pick a new path. Nothing is overwritten. |
 | `MIGRATION_UNPAIRED_PLURAL`, `MIGRATION_ORDINAL_ID`, `I18NEXT_CONTEXT` | Plural-like keys without partners, merged ordinals, context variants kept separate: review, then convert to plural, selectordinal or select. |

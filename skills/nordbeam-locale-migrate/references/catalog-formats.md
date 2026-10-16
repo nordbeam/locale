@@ -1,6 +1,6 @@
 # Catalog formats: PO, POT, MO, Jed JSON, ARB, YAML, Android XML, Apple strings
 
-Supported `--format` / `--catalog-format` values for catalogs (confirm with `npx nordbeam-locale capabilities --json`, `formats.catalogs`): `i18next`, `vue-i18n`, `next-intl`, `formatjs`, `lingui`, `tolgee`, `arb`, `yaml`, `android-xml`, `apple-strings`, `apple-xcstrings`, `po`, `pot`, `mo`, `json-gettext`, `module`. XLIFF is not supported: convert it to PO or JSON with another tool first rather than parsing it by hand.
+Supported `--format` / `--catalog-format` values for catalogs (confirm with `npx nordbeam-locale capabilities --json`, `formats.catalogs`): `i18next`, `vue-i18n`, `next-intl`, `formatjs`, `lingui`, `lingui-po`, `tolgee`, `arb`, `yaml`, `android-xml`, `apple-strings`, `apple-xcstrings`, `po`, `pot`, `mo`, `json-gettext`, `module`. XLIFF is not supported: convert it to PO or JSON with another tool first rather than parsing it by hand.
 
 `migrate` converts one catalog and never touches source calls. Always preview first; the JSON result carries the whole converted catalog in `output`, plus `warnings` and `collisions`:
 

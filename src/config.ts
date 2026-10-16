@@ -15,8 +15,8 @@ export const historicalConfigName = 'fasti18n.config.json';
 /** Option keys that `init` persists to the config file. */
 export const configKeys = [
   'baseLocale', 'catalogs', 'notes', 'outDir', 'missing',
-  'formats', 'timeZone', 'scopes', 'artifacts', 'includeSources', 'shareLiterals', 'cache', 'persistentCache',
-  'selectionFallback', 'shareMessages', 'preloadManifest', 'staticLocale', 'lockedKeys', 'ignoredKeys', 'text',
+  'formats', 'timeZone', 'intlLocales', 'scopes', 'artifacts', 'includeSources', 'shareLiterals', 'cache', 'persistentCache',
+  'selectionFallback', 'shareMessages', 'preloadManifest', 'staticLocale', 'lockedKeys', 'ignoredKeys', 'text', 'arguments',
 ] as const;
 /** Accepted but not persisted: the editor schema reference and the ignored development flag. */
 const acceptedConfigKeys = new Set<string>([...configKeys, '$schema', 'development']);
@@ -41,6 +41,12 @@ export function validateConfig(value: unknown, file = configName): asserts value
   if (value.includeSources !== undefined && value.includeSources !== 'rich' && value.includeSources !== 'all'
     && (!Array.isArray(value.includeSources) || value.includeSources.some(id => typeof id !== 'string' || !id))) {
     throw new Error(`${file}: includeSources must be "rich", "all" or an array of message IDs.`);
+  }
+  if (value.intlLocales !== undefined) {
+    if (!isRecord(value.intlLocales)) throw new Error(`${file}: intlLocales must be an object of locale codes to BCP 47 tags, such as { "se": "sv" }.`);
+    for (const [locale, tag] of Object.entries(value.intlLocales)) {
+      if (typeof tag !== 'string' || !tag) throw new Error(`${file}: intlLocales.${locale} must be a nonempty BCP 47 tag, such as "sv".`);
+    }
   }
   if (value.shareLiterals !== undefined && typeof value.shareLiterals !== 'boolean') throw new Error(`${file}: shareLiterals must be a boolean.`);
   if (value.development !== undefined && typeof value.development !== 'boolean') throw new Error(`${file}: development must be a boolean.`);
@@ -69,13 +75,24 @@ export function validateConfig(value: unknown, file = configName): asserts value
     const strings = (list: unknown, empty: boolean) => Array.isArray(list) && (empty || list.length > 0) && list.every(item => typeof item === 'string' && item);
     for (const [scope, patterns] of Object.entries(value.scopes)) {
       if (isRecord(patterns)) {
-        const unknown = Object.keys(patterns).filter(key => key !== 'modules' && key !== 'exclude' && key !== 'messages');
-        if (unknown.length) throw new Error(`${file}: scopes.${scope} has unknown option ${JSON.stringify(unknown[0])}; use modules, exclude and messages.`);
+        const unknown = Object.keys(patterns).filter(key => key !== 'modules' && key !== 'exclude' && key !== 'dynamicImports' && key !== 'messages');
+        if (unknown.length) throw new Error(`${file}: scopes.${scope} has unknown option ${JSON.stringify(unknown[0])}; use modules, exclude, dynamicImports and messages.`);
+        if (patterns.dynamicImports !== undefined && typeof patterns.dynamicImports !== 'boolean') throw new Error(`${file}: scopes.${scope}.dynamicImports must be true or false.`);
         if (!strings(patterns.modules, false)) throw new Error(`${file}: scopes.${scope}.modules must be a nonempty array of file patterns relative to the project root.`);
         if (patterns.exclude !== undefined && !strings(patterns.exclude, true)) throw new Error(`${file}: scopes.${scope}.exclude must be an array of file patterns relative to the project root.`);
         if (patterns.messages !== undefined && !strings(patterns.messages, true)) throw new Error(`${file}: scopes.${scope}.messages must be an array of message IDs or prefix patterns.`);
       } else if (!strings(patterns, false)) {
         throw new Error(`${file}: scopes.${scope} must be a nonempty array of message IDs or prefix patterns, or an object with modules.`);
+      }
+    }
+  }
+  if (value.arguments !== undefined) {
+    if (!isRecord(value.arguments)) throw new Error(`${file}: arguments must be an object of message IDs to { argument: "value" | "number" | "date" } objects.`);
+    for (const [id, declared] of Object.entries(value.arguments)) {
+      if (!isRecord(declared) || !Object.keys(declared).length) throw new Error(`${file}: arguments.${id} must be a nonempty object of argument names to "value", "number" or "date".`);
+      for (const [name, kind] of Object.entries(declared)) {
+        if (!/^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u.test(name)) throw new Error(`${file}: arguments.${id} declares ${JSON.stringify(name)}, which is not an argument name.`);
+        if (kind !== 'value' && kind !== 'number' && kind !== 'date') throw new Error(`${file}: arguments.${id}.${name} must be "value", "number" or "date".`);
       }
     }
   }

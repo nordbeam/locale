@@ -30,7 +30,7 @@
     "NOTICE"
   ],
   "bin": {
-    "nordbeam-locale": "./cli.js"
+    "nordbeam-locale": "cli.js"
   },
   "dependencies": {
     "@nordbeam/locale": "0.4.0"

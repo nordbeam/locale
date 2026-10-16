@@ -214,7 +214,8 @@ export const mcpTools: McpTool[] = [
     async run(_args, context) {
       const { configFile, loaded, options, root } = await loadProject(context);
       const { inspectProject } = await import('./inspect.js');
-      const result = await inspectProject(options, configFile, loaded);
+      // Output from a production build (the Vite or Next plugin) is fresh too, unless NODE_ENV names a mode.
+      const result = await inspectProject(options, configFile, loaded, { anyMode: process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'development' });
       return {
         ok: result.ok,
         config: projectPath(configFile, root),

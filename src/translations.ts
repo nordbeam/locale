@@ -7,7 +7,7 @@ import { staticScopes } from './scope-modules.js';
 import type { GenerateOptions } from './project.js';
 import { invalidJson, locateDiagnostics } from './catalog-diagnostics.js';
 import type { CatalogSource } from './catalog-diagnostics.js';
-import { assertPoText, noteComments, parsePo, poError, quotePo } from './po.js';
+import { assertPoText, checkPoLocales, noteComments, parsePo, poError, poHeaderLines, quotePo } from './po.js';
 import { readNotes } from './notes.js';
 export { mergePo, serializePo } from './po.js';
 export type { MergePoOptions, MergePoResult, SerializePoOptions, SerializePoResult } from './po.js';
@@ -105,7 +105,7 @@ export async function exportPo(options: TranslationOptions): Promise<ExportPoRes
     '# msgctxt is a stable message ID. Do not change it.',
     '# An empty msgstr is untranslated. Add the nordbeam-locale:empty marker for intentional empty text.',
     'msgid ""', 'msgstr ""',
-    ...[`Language: ${options.locale}\n`, 'MIME-Version: 1.0\n', 'Content-Type: text/plain; charset=UTF-8\n', 'Content-Transfer-Encoding: 8bit\n', 'X-Nordbeam-Locale-Format: 1\n', `X-Source-Language: ${options.baseLocale}\n`].map(quotePo),
+    ...poHeaderLines(options.locale, options.baseLocale, options.intlLocales),
   ];
   for (const [id, source] of [...base].sort(([a], [b]) => compare(a, b))) {
     const translation = target.get(id);
@@ -154,13 +154,7 @@ export async function importPo(options: ImportPoOptions): Promise<ImportPoResult
   try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(from)); }
   catch (error) { poError('PO_READ_ERROR', `Cannot read UTF-8 PO input: ${(error as Error).message}`, from); }
   const po = parsePo(text, from);
-  const language = po.headers.get('language');
-  if (language !== options.locale) poError('PO_LOCALE_MISMATCH', `PO Language is ${JSON.stringify(language ?? '')}; expected ${JSON.stringify(options.locale)}.`, from);
-  if (!/^text\/plain\s*;\s*charset\s*=\s*"?utf-8"?\s*$/i.test(po.headers.get('content-type') ?? '')) poError('PO_ENCODING', 'PO Content-Type must declare text/plain; charset=UTF-8.', from);
-  const version = po.headers.get('x-nordbeam-locale-format') ?? po.headers.get('x-nordbeam-i18n-format') ?? po.headers.get('x-fasti18n-format');
-  if (version !== undefined && version !== '1') poError('PO_VERSION', `Unsupported PO transport version ${JSON.stringify(version)}.`, from);
-  const baseLocale = po.headers.get('x-source-language');
-  if (baseLocale !== undefined && baseLocale !== options.baseLocale) poError('PO_BASE_LOCALE', 'PO source language does not match the project base locale.', from);
+  checkPoLocales(po, options.locale, options.baseLocale, options.intlLocales, from);
   const base = indexCatalog(input.catalogs[options.baseLocale]!, options.baseLocale);
   const target = input.catalogs[options.locale] ?? Object.create(null) as Catalog;
   const targetIndex = indexCatalog(target, options.locale);

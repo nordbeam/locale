@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { checkProject, CompileError } from '@nordbeam/locale/internal/migrate';
 import type { Catalog, Diagnostic } from '@nordbeam/locale/internal/migrate';
 import { decodeMigrationCatalog } from './catalog-formats.js';
+import { grouped } from './grouped-warnings.js';
 import type { MigrationFormat } from './catalog-formats.js';
 import { convertVueMessages } from './vue-i18n-messages.js';
 
@@ -19,6 +20,10 @@ export interface MigrationResult {
   /** Notes about the migrated messages, from source comments and descriptions, by message ID. */
   notes: Record<string, string>;
   messageCount: number;
+  /** Every message ID the source holds, before renames: `migrationIdRenames` over the IDs of all locales gives renames that agree across catalogs. */
+  ids: string[];
+  /** IDs that could not nest as written, and the IDs they migrated as. */
+  renamed: Record<string, string>;
   changed: string[];
   warnings: Diagnostic[];
   collisions: Array<{ code: string; message: string; path?: string }>;
@@ -47,6 +52,31 @@ function migrationWarning(code: string, message: string, hint?: string): Diagnos
   return { code, message, ...(hint ? { hint } : {}) };
 }
 
+/** IDs that cannot nest as written, and the IDs they migrate as. A nested catalog key is
+ * a message or a namespace, never both, and a segment is never empty:
+ * - an empty or space-edged segment is trimmed away, so the sentence ID
+ *   `"Try again later."` becomes `"Try again later"`;
+ * - an ID that is also the prefix of others (`toast` and `toast.action`) becomes `toast.message`.
+ * An ID whose new name is taken keeps its name, and its collision is reported. Pass the IDs
+ * of every locale, so all catalogs and the source codemod rename alike. */
+export function migrationIdRenames(ids: Iterable<string>): Map<string, string> {
+  const all = new Set(ids), renames = new Map<string, string>(), final = new Set(all);
+  const move = (id: string, next: string): void => { final.delete(renames.get(id) ?? id); final.add(next); renames.set(id, next); };
+  for (const id of all) {
+    const segments = id.split('.');
+    if (!segments.some(segment => !segment || segment !== segment.trim())) continue;
+    const next = segments.map(segment => segment.trim()).filter(Boolean).join('.');
+    if (next && next !== id && !final.has(next)) move(id, next);
+  }
+  const prefixes = new Set<string>();
+  for (const id of final) { const parts = id.split('.'); for (let end = 1; end < parts.length; end++) prefixes.add(parts.slice(0, end).join('.')); }
+  for (const id of all) {
+    const current = renames.get(id) ?? id;
+    if (prefixes.has(current) && !final.has(`${current}.message`)) move(id, `${current}.message`);
+  }
+  return renames;
+}
+
 /** Convert the common JSON forms emitted by i18next, next-intl and FormatJS.
  * This intentionally migrates catalogs only. Source calls are not rewritten:
  * APIs such as i18next's namespaces and interpolation options need semantic
@@ -59,21 +89,26 @@ export async function migrateCatalog(options: {
   notes?: string;
   dryRun?: boolean;
   locale?: string;
+  /** The catalog is the base locale's: a Lingui message without text takes its ID, as Lingui rendered it. */
+  sourceLocale?: boolean;
+  /** Renames to apply, from `migrationIdRenames` over every locale's IDs; by default, those this catalog's own IDs need. */
+  idRenames?: ReadonlyMap<string, string>;
 }): Promise<MigrationResult> {
   let decoded: Awaited<ReturnType<typeof decodeMigrationCatalog>>;
-  try { decoded = await decodeMigrationCatalog(options.from, options.format, options.locale); }
+  try { decoded = await decodeMigrationCatalog(options.from, options.format, options.locale, { sourceLocale: options.sourceLocale }); }
   catch (error) { fail('MIGRATION_READ_ERROR', (error as Error).message, { file: resolve(options.from) }); }
   const parsed = decoded.value, traversal = decoded.traversal;
   const warnings: Diagnostic[] = [...decoded.warnings], collisions: Array<{ code: string; message: string; path?: string }> = [];
   const foundNotes: Record<string, string> = Object.assign(Object.create(null), decoded.notes);
   const leavesFound: MigrationLeaf[] = [];
   const seenIds = new Map<string, MigrationLeaf>();
+  const droppedMetadata: string[] = [];
   const descriptor = (value: MigrationInput, id: string): string | undefined => {
     const source = typeof value.defaultMessage === 'string' ? value.defaultMessage : typeof value.message === 'string' ? value.message : undefined;
     if (source === undefined) return;
     if (typeof value.description === 'string' && value.description.trim()) foundNotes[id] = value.description;
     const metadata = Object.keys(value).filter(key => !['defaultMessage', 'message', 'description'].includes(key));
-    if (metadata.length) warnings.push(migrationWarning('MIGRATION_METADATA_DROPPED', `Dropped FormatJS metadata for ${JSON.stringify(id)} (${metadata.join(', ')}).`, 'Nordbeam catalogs store message text; descriptions become notes with --notes.'));
+    if (metadata.length) droppedMetadata.push(id);
     if (value.message !== undefined && value.defaultMessage === undefined) warnings.push(migrationWarning('MIGRATION_MESSAGE_FIELD', `Used the non-standard message field for ${JSON.stringify(id)}.`));
     return source;
   };
@@ -164,6 +199,7 @@ export async function migrateCatalog(options: {
     }
   }
   visit(parsed, [], traversal);
+  if (droppedMetadata.length) warnings.push(grouped('MIGRATION_METADATA_DROPPED', droppedMetadata, (count, examples) => `Dropped FormatJS metadata (fields other than defaultMessage and description) from ${count} message${count === 1 ? '' : 's'}${examples}.`, 'Nordbeam catalogs store message text; descriptions become notes with --notes.'));
   if (traversal === 'vue-i18n') {
     const converted = convertVueMessages(leavesFound, options.locale, warnings);
     for (let index = leavesFound.length - 1; index >= 0; index--) {
@@ -219,6 +255,19 @@ export async function migrateCatalog(options: {
     for (let index = leavesFound.length - 1; index >= 0; index--) if (consumed.has(leavesFound[index]!.id) && !mergedIds.has(leavesFound[index]!.id)) leavesFound.splice(index, 1);
   }
   const outputRoot: MigrationInput = Object.create(null);
+  const ids = [...new Set(leavesFound.map(leaf => leaf.id))];
+  const renames = options.idRenames ?? migrationIdRenames(ids);
+  const renamed: Record<string, string> = Object.create(null);
+  for (const leaf of leavesFound) {
+    const next = renames.get(leaf.id);
+    if (next === undefined) continue;
+    renamed[leaf.id] = next;
+    if (Object.hasOwn(foundNotes, leaf.id)) { foundNotes[next] = foundNotes[leaf.id]!; delete foundNotes[leaf.id]; }
+    leaf.id = next;
+  }
+  const renamedIds = Object.keys(renamed).sort(compare);
+  if (renamedIds.length) warnings.push({ ...grouped('MIGRATION_ID_RENAMED', renamedIds, count => `Renamed ${count} message ID${count === 1 ? '' : 's'} that cannot nest as written: ${renamedIds.slice(0, 3).map(id => `${JSON.stringify(id)} → ${JSON.stringify(renamed[id])}`).join(', ')}${count > 3 ? ', …' : ''}.`,
+    'A nested key is a message or a namespace, never both, and never empty. migrate-project rewrites the calls to these IDs; after migrate alone, rename them in the source.'), renamed: { ...renamed } } as Diagnostic);
   const outputLeaves = [...new Map(leavesFound.map(leaf => [leaf.id, leaf])).values()].sort((a, b) => compare(a.id, b.id));
   for (const leaf of outputLeaves) {
     const path = leaf.id.split('.');
@@ -265,5 +314,5 @@ export async function migrateCatalog(options: {
     }
   }
   return { ok: collisions.length === 0, format: options.format, source: resolve(options.from), ...(destination ? { destination } : {}),
-    ...(notesDestination ? { notesDestination } : {}), dryRun: options.dryRun === true, output, notes, messageCount: outputLeaves.length, changed, warnings, collisions };
+    ...(notesDestination ? { notesDestination } : {}), dryRun: options.dryRun === true, output, notes, messageCount: outputLeaves.length, ids, renamed: { ...renamed }, changed, warnings, collisions };
 }

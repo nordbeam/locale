@@ -22,6 +22,33 @@ import { codemodSource, codemodProject } from '@nordbeam/locale-migrate/codemods
 
 Dynamic keys and ambiguous providers are reported, not guessed. See [Migration](../MIGRATION.md).
 
+`messageIdRenames` maps legacy IDs to the names the catalog migration gave them
+(`migrateCatalog` and `migrateProject` report them as `MIGRATION_ID_RENAMED`).
+Every rewritten call uses the new name.
+
+`richMessageIds` lists the IDs whose base message has tags. A Lingui
+`<Trans components={[…]}>` becomes `rich(m.id, { tag0: … })` only for those IDs,
+and a plain call otherwise, because a message without tags never rendered its
+components. Without the option, every element with `components` becomes `rich()`.
+Each slot rebuilds the component around the message's children: a void element
+such as `<br />` takes none, and an empty `<0></0>` renders the component as it was
+written. Components passed by reference (`components={[link]}`) are reported as
+`RICH_MESSAGE`.
+
+`messageComponent` names a component that renders a message in the current
+locale, `<C render={(m) => …} />`. When it is given, a Lingui `<Trans>` outside
+any component (module scope, a plain helper, a class) becomes that element
+instead of a call on `m`, which has no binding there. Function components and
+hooks are recognized by their names (`Title`, `useTitle`), including arrow
+functions assigned to a name or wrapped in `memo()` or `forwardRef()`.
+`planReactMigration` declares the component; the option alone does not.
+
+A Lingui `<Trans>` id may also be an expression: `id={'x'}` and a finite
+conditional (`id={open ? 'a' : 'b'}`, also with `defineMessage({ id }).id`
+branches) are rewritten; any other expression is `DYNAMIC_MESSAGE_KEY`.
+`i18n._(descriptor)` keeps the descriptor's `values`, also inside
+`defineMessage()`, `msg()` and `t()`.
+
 `messagesImport` is an explicit opt-in source option (or `--messages-import <specifier>` on
 `codemod`). When a call is rewritten, it adds or merges a value import for the configured
 messages object; files with no replacements are left unchanged. JavaScript/TypeScript files

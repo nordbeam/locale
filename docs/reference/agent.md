@@ -57,6 +57,57 @@ nordbeam-locale init --agent
 - The files in each skill's `evals/` directory are maintainer test cases. They are
   not published in the package and not installed into projects.
 
+## Unreleased
+
+`protocolVersion` stays `1`. The additions are backward compatible.
+
+Additive:
+
+- `inspect --scope <name> [--id <message-id>]`: the `inspectScope` result (see
+  [agent inspection](agent-inspect.md)) as `{ root, scope, kind, modules?,
+  exclude?, patterns, messageCount, share, fileCount?, files?,
+  withoutDynamicImports?, message? }`, with `truncated.files` when `--limit`
+  capped `files`. An unknown scope is `USAGE` (exit 2) with `validValues` and a
+  `suggestion`. `--scope` does not stream NDJSON.
+- `verify` and `inspect` accept `--development` and `--production`. Without them
+  (and without a `NODE_ENV` of `production` or `development`) output generated in
+  either mode is fresh; `freshness.mode` names the mode of fresh output. A stale
+  `next` command carries `--production` when production output was asked for.
+- `report --json`: each computed scope also has `files` (source files its crawl
+  read), `dynamicFiles` (those reached through a dynamic `import()`) and, when it
+  follows dynamic imports, `withoutDynamicImports`.
+- `init --json` results may carry `notes`: lint and format configs that init does
+  not edit and what to add to them. `updated` also lists the `.eslintignore`,
+  `.prettierignore`, `.oxlintrc.json` and `.oxfmtrc.json` files that gained the
+  generated directory.
+- `inspect --id`: an argument that only the config declares (the `arguments`
+  key) is listed with `declared: true`.
+- New codes: `doctor` reports the `QUOTED_RUN_APOSTROPHE` warning; `check`,
+  `generate` and `verify` report `INVALID_DECLARED_ARGUMENT`,
+  `UNKNOWN_INTL_LOCALE` and `INVALID_INTL_LOCALE` errors; `migrate-project`
+  reports the `LINGUI_PO_QUOTES`, `LINGUI_OBSOLETE_INCLUDED`,
+  `LINGUI_WHITESPACE_TRIMMED`, `LINGUI_SOURCE_ID_TEXT`, `MIGRATION_TEXT_CHANGED`
+  and `MIGRATION_ID_RENAMED` warnings. `capabilities` lists the `lingui-po`
+  catalog format.
+- `migrate-project` results add `renamedIds` and `catalogs[].format`. A run
+  that cannot convert its catalogs fails with `COMMAND_FAILED` as `errors[0]`,
+  followed by one error per failing message with `code` (such as
+  `MIGRATION_INVALID_ICU` or `UNKNOWN_ARGUMENT`), `locale`, `file` and
+  `messageId`.
+
+Changed:
+
+- `init` writes `"prebuild": "nordbeam-locale --production"` (it was
+  `nordbeam-locale`, which generated development output with argument guards
+  before a production build).
+- Migration warnings that concern many messages come once per code and
+  catalog: `MIGRATION_ID_RENAMED`, `MIGRATION_METADATA_DROPPED`,
+  `DOTTED_SOURCE_ID`, `PO_FUZZY_SKIPPED`, `PO_UNTRANSLATED_SKIPPED` and the
+  `LINGUI_*` warnings. Each carries `count` and `messageIds` (every ID, not
+  capped), and `MIGRATION_ID_RENAMED` also carries `renamed`, an object from old
+  ID to new ID. Earlier versions emitted one warning per message for some of
+  these codes.
+
 ## Changes in 0.2
 
 `protocolVersion` stays `1`. The additions are backward compatible; the path,

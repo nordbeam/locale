@@ -24,6 +24,25 @@ import { compileProject, checkProject } from '@nordbeam/locale/compiler';
 - `CompileError`, `Diagnostic`, `formatDiagnostic`, and `quote` — diagnostics
   and code-generation helpers.
 
+## Locale tags
+
+`CompilerOptions.intlLocales` maps a locale code to the BCP 47 tag that `Intl`
+formats it with, such as `{ se: 'sv' }`. Generated formatters, plural rules,
+ICU skeletons and the plural category checks use the tag; file names,
+diagnostics and `loadLocale` keep the code. With the option set, each generated
+`index.js` also exports `intlLocales`, a frozen map from every locale to its tag.
+See [locale codes that mean another language](../GUIDE.md#locale-codes-that-mean-another-language).
+
+## Declared arguments
+
+`CompilerOptions.arguments` adds arguments to a message's contract that its base
+text does not use, by message ID: `{ 'pricing.subtitle': { price: 'value' } }`.
+Translations may then use them, the generated type requires them, and
+development output checks them in every locale. `DeclaredArgumentKind` is
+`'value' | 'number' | 'date'`. An unknown ID is `UNKNOWN_MESSAGE`, and an invalid
+name or kind is `INVALID_DECLARED_ARGUMENT`. See
+[arguments only a translation uses](../GUIDE.md#arguments-only-a-translation-uses).
+
 ## Declarations
 
 Generated `messages.d.ts` declarations carry each message's base-locale source

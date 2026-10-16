@@ -100,6 +100,19 @@ const content = rich(m.terms, {
 });
 ```
 
+A plain argument such as `{code}` also takes a React element, in a message with
+or without tags. The element goes where the argument is, so translators can
+still move it:
+
+```tsx
+// "promo": "Use {code} at checkout"
+rich(m.promo, { code: <strong>{promoCode}</strong> });
+```
+
+When the element's text should be translated too, make it a slot
+(`Use <code>{code}</code> at checkout`) so translators see it. Number, date and
+`select` arguments take values only.
+
 Use `includeSources` only when a component needs the original ICU source for a
 custom rich renderer. Ordinary messages should use the generated formatter
 alone.
@@ -131,6 +144,28 @@ test('every locale renders the price', async () => {
 For snapshot tests, set a fixed `timeZone` and pass stable dates. Prefer
 message functions over snapshots of the generated module itself.
 
+Component tests need a messages object for the provider. Import the base
+locale's generated module for the real text, `messageIds` when a test asserts
+IDs, and `withMessages` to replace a few messages:
+
+```tsx
+import { compileMessages, messageIds, withMessages } from '@nordbeam/locale/testing';
+import en from '../src/i18n/locales/en.js';
+
+const renderWith = (messages: typeof en) =>
+  render(<i18n.Provider initial={{ locale: 'en', messages }}><Checkout /></i18n.Provider>);
+
+test('shows the title by ID', () => {
+  renderWith(messageIds(en));
+  expect(screen.getByText('checkout.title')).toBeVisible();
+});
+
+test('formats the total', async () => {
+  renderWith(withMessages(en, await compileMessages({ 'cart.total': 'Total: {amount, number}' })));
+  expect(screen.getByText('Total: 1,200')).toBeVisible();
+});
+```
+
 ## CI
 
 Run strict validation before the application type-check. If generated output is
@@ -141,7 +176,7 @@ including production installs where the CLI is not present.
 ```json
 {
   "scripts": {
-    "prebuild": "nordbeam-locale",
+    "prebuild": "nordbeam-locale --production",
     "i18n:check": "nordbeam-locale check --strict",
     "build": "npm run i18n:check && tsc -b"
   }

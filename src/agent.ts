@@ -1,7 +1,7 @@
 export const agentProtocolVersion = 1 as const;
 
 export const catalogMigrationFormats = [
-  'i18next', 'vue-i18n', 'next-intl', 'formatjs', 'lingui', 'tolgee', 'arb', 'yaml',
+  'i18next', 'vue-i18n', 'next-intl', 'formatjs', 'lingui', 'lingui-po', 'tolgee', 'arb', 'yaml',
   'android-xml', 'apple-strings', 'apple-xcstrings', 'po', 'pot', 'mo',
   'json-gettext', 'module',
 ] as const;
@@ -67,7 +67,7 @@ const commands: AgentCommandCapability[] = [
   { name: 'mcp', invocation: 'mcp', summary: 'Serve check, generate, inspect_project, inspect_message, explain_code, rename_message, find_unused and find_hardcoded as MCP tools over stdio (newline-delimited JSON-RPC).', access: 'conditional', json: false, preview: false, idempotent: false },
   { name: 'check', invocation: 'check --json', summary: 'Validate catalogs without generating files.', access: 'read', json: true, ndjson: true, preview: false, idempotent: true, options: ['limit', 'only', 'summary'] },
   { name: 'verify', invocation: 'verify --json', summary: 'Run check and confirm the generated output is fresh and unedited; exits 0 only when both pass. Run it before finishing.', access: 'read', json: true, preview: false, idempotent: true, options: ['limit', 'only', 'summary'] },
-  { name: 'inspect', invocation: 'inspect --json', summary: 'Return resolved configuration, catalogs, generated ownership state, freshness, integrations, and diagnostics without writing; --id <message-id> describes one message.', access: 'read', json: true, ndjson: true, preview: false, idempotent: true, options: ['id', 'limit', 'only', 'summary'] },
+  { name: 'inspect', invocation: 'inspect --json', summary: 'Return resolved configuration, catalogs, generated ownership state, freshness, integrations, and diagnostics without writing; --id <message-id> describes one message; --scope <name> lists the files a computed scope reached and, with --id, why that message is in it.', access: 'read', json: true, ndjson: true, preview: false, idempotent: true, options: ['id', 'scope', 'limit', 'only', 'summary'] },
   { name: 'doctor', invocation: 'doctor --json', summary: 'Validate catalogs and inspect source usage.', access: 'read', json: true, ndjson: true, preview: false, idempotent: true, options: ['limit', 'only', 'summary'] },
   { name: 'report', invocation: 'report --json', summary: 'Analyze translation coverage per locale, unused messages, namespaces, scopes, ICU features and generated catalog sizes. Without --json, or with --out, writes a self-contained HTML page (default nordbeam-locale-report.html); offer `report --open` when a person asks how complete or large their translations are.', access: 'conditional', json: true, preview: false, idempotent: true, options: ['limit'] },
   { name: 'hardcoded', invocation: 'hardcoded --json', summary: 'Find UI text in source that is not a catalog message: JSX, Vue and Svelte templates, props, calls and object keys, with high or medium confidence. --fix reuses catalog messages with the same text, adding the translator hook a component lacks; --extract also adds new messages. Both preview until --write. Needs the optional oxc-parser.', access: 'conditional', json: true, preview: true, idempotent: true, options: ['limit', 'confidence', 'fix', 'extract', 'strict'] },

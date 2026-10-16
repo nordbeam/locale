@@ -148,7 +148,45 @@ The mode is chosen in this order:
 
 When `NODE_ENV` is unset and no flag is given, the CLI prints a notice that it
 generated development output. Passing both flags is a usage error. Set
-`NODE_ENV=production` or `--production` in production build scripts.
+`NODE_ENV=production` or `--production` in production build scripts; the
+`prebuild` script that `init` adds passes `--production`.
+
+`verify` and `inspect` check freshness against the same inputs. Without a flag
+or `NODE_ENV`, output generated in either mode counts as fresh, so `verify` passes
+after `vite build` or `next build` left production output behind, and the result
+names the mode (`freshness.mode`). `--production`, `--development` or a
+`NODE_ENV` of `production` or `development` make the mode a requirement; output
+in the other mode is then stale, with the reason `the output is a production
+build, and a development build was asked for`.
+
+### Locale codes that mean another language
+
+A catalog's file name is its locale, and `Intl` formats it as that BCP 47 tag.
+When a project's code means something else to `Intl`, map it with
+`intlLocales`. A common case is `se` for Swedish: to `Intl`, `se` is Northern
+Sami, which has a `two` plural category and its own month names.
+
+```json
+{
+  "baseLocale": "en",
+  "intlLocales": { "se": "sv" }
+}
+```
+
+The catalog stays `messages/se.json`, the generated module stays
+`locales/se.js`, and `loadLocale('se')` and every `locale` value the app passes
+around keep the code. Plural rules, number, date and time formatting, the
+plural category checks of `check`, and the `Language` header of `export` use
+`sv`. A key must name a catalog (`UNKNOWN_INTL_LOCALE`) and a value must be a
+canonical tag (`INVALID_INTL_LOCALE`).
+
+When the config maps a locale, the generated `index.js` also exports
+`intlLocales`, with every locale: `{ en: 'en', se: 'sv' }`. Use it where the app
+formats on its own, as in `new Intl.NumberFormat(intlLocales[locale])`, and pass
+it to the [Next.js](reference/next-routing.md) or
+[TanStack Start](reference/tanstack-start.md) routing, which then matches
+`Accept-Language: sv-SE` to `se` and writes `hreflang="sv"` and
+`<html lang="sv">`. URLs and cookies keep `se`.
 
 ## Vite selection
 
@@ -261,7 +299,8 @@ imports every route. A file contributes each message ID it names:
 
 - in a string literal: `'pricing.title'`;
 - in a property chain: `m.pricing.title()`, and `pricing.title()` after
-  `const { pricing } = m`;
+  `const { pricing } = m`. Names may use any letters JavaScript allows
+  (`m.sök.för()`), and a segment may be a string key (`m.video['för']()`);
 - in a template literal, as a pattern: `` `pricing.plan.${id}` `` takes every ID
   of that shape. The literal start must contain a dot.
 
@@ -273,8 +312,31 @@ matches no file fails generation with
 [`SCOPE_MODULE_NOT_FOUND`](reference/errors.md#scope_module_not_found); modules
 that name no message fail with [`EMPTY_SCOPE`](reference/errors.md#empty_scope).
 
+Set `"dynamicImports": false` to stop the crawl at dynamic `import()` calls.
+Use it when code the scope's pages load lazily, such as a checkout modal, sits
+behind a boundary that loads the full catalog anyway, so its messages need not
+be in the scope.
+
 The crawl reads text; it does not run or type-check the code, so it can take a
-message the page never shows, which costs only bytes. A message it misses is a
+message the page never shows, which costs only bytes. To see why a scope is as
+large as it is, run `nordbeam-locale inspect --scope <name>`: it lists the files
+the crawl read, with the number of messages each is the first to name and
+whether it was reached through a dynamic import, and how many messages the scope
+would hold with `"dynamicImports": false`. Add `--id <message-id>` for the import
+chain that brought one message in:
+
+```text
+$ nordbeam-locale inspect --scope library --id checkout.title
+Scope library: 412 messages (31.2% of the base catalog), named in 168 files reached from src/routes/library.tsx.
+With "dynamicImports": false the crawl would stop at dynamic import() calls, and the scope would hold 301 messages.
+
+checkout.title is named by src/checkout/Plans.tsx, reached by:
+  src/routes/library.tsx
+  ⇢ src/checkout/Modal.tsx  (dynamic import)
+  → src/checkout/Plans.tsx
+```
+
+Then exclude the file, set `"dynamicImports": false`, or keep the message. A message it misses is a
 bug on the page, so in development the scope's `loadLocale` checks every read:
 reading a message that the catalog has and the scope left out logs
 `Nordbeam Locale: message "…" is not in the "site" scope` to the console.
@@ -563,6 +625,30 @@ Dry runs write nothing. The import validates IDs, ICU, and argument contracts
 before committing a catalog update. The command reference is in
 [translations](reference/translations.md).
 
+### Arguments only a translation uses
+
+The base message defines what a message takes: a translation that uses an
+argument the base text does not is an
+[`UNKNOWN_ARGUMENT`](reference/errors.md#unknown_argument) error, because no call
+would pass it. Sometimes the call does pass it and only the base text leaves it
+out, for example a Finnish subtitle that shows the price the English one omits.
+Declare the argument for that message in the config:
+
+```json
+{
+  "arguments": {
+    "pricing.subtitle": { "price": "value" }
+  }
+}
+```
+
+The declared argument becomes part of the message in every locale: its type
+requires `price`, development output checks it in the base locale too, and each
+translation may use it. `value` is a plain `{price}` (string or number);
+`number` and `date` take the formatted kinds. A declaration for a message that is
+not in the base catalog is `UNKNOWN_MESSAGE`; a translation that formats a
+declared argument as another kind is `ARGUMENT_TYPE_CONFLICT`.
+
 ## Notes about messages
 
 Catalogs hold message text only. Context for a message, such as where it appears,
@@ -603,6 +689,11 @@ npx nordbeam-locale pseudo --locale en-XA --from-locale en --dry-run
 keys cannot be proven by a static scan and are called out in the report. Use
 `--json` with `rename`, `extract`, `prune`, or `doctor` for editor and local
 automation integrations. These commands never touch generated output.
+`doctor` runs `check`, then reports unused messages, unknown IDs in the source,
+hardcoded text, and quoting that is valid ICU but almost never intended:
+`'<br/>''<br/>'` is one quoted run with an apostrophe in it, so the page shows
+`<br/>'<br/>` (`QUOTED_RUN_APOSTROPHE`; quote adjacent syntax as one run,
+`'<br/><br/>'`).
 `pseudo` expands visible text while preserving ICU placeholders and branches;
 it creates only the explicit target locale and requires `--update` before an
 existing target can be replaced.
@@ -684,6 +775,22 @@ formats, locale tags, CSS values, brand names such as `GitHub`, company names
 such as `Acme AB`, and text that is the same in every catalog are left out, as
 is everything inside `<code>`, `<pre>`, `<Trans>` and elements marked
 `translate="no"`, `class="notranslate"` or `data-nordbeam-locale-ignore`.
+
+Text that another i18n library already renders is not a finding either, so a
+scan before a migration is a baseline. That covers Lingui (`<Trans>`, `<Plural>`,
+`<Select>`, `` t`…` ``, `msg`, `defineMessage`, `plural()`, `select()`,
+`i18n._()` and `useLingui()`), react-intl (`<FormattedMessage>`,
+`defineMessages`, `intl.formatMessage()`) and i18next (`t("key", "Default")`,
+`defaultValue`, `<Trans i18nKey>`). The library is recognized by its import
+(`@lingui/*`, `react-intl`, `@formatjs/intl`, `i18next`, `react-i18next`,
+`next-i18next`) and the hooks that return its functions. Their IDs, default
+text and notes for translators (`message`, `defaultMessage`, `defaultValue`,
+`comment`, `description`) are left out, and a file that uses them counts as
+localized. A message descriptor such as `{ id: "team.sweden", message: "Team
+Sweden" }` counts in a file that imports the library, and anywhere else when
+its ID is a catalog ID, has a dot, or is the text itself. In a file that
+imports the library, calls of a helper that returns a descriptor, such as
+`const _t = (message) => ({ id: message, message })`, count as messages too.
 
 `--fix` replaces text whose catalog message renders exactly the same, in the
 base locale and in every locale an inline translation spells out. It prefers a
@@ -858,6 +965,31 @@ testI18n.keyFromSelector(m => m.product.price); // "product.price"
 const rendered = await testI18n.localeMatrix(locales, loadLocale,
   messages => messages.product.price({ amount: 12 }));
 ```
+
+Component tests render with a messages object. The generated base locale
+(`import en from './src/i18n/locales/en.js'`) renders the real text and loads
+synchronously. Three helpers build others from it, each with the same IDs,
+nested view and type:
+
+```ts
+import { compileMessages, messageIds, withMessages } from '@nordbeam/locale/testing';
+import en from './src/i18n/locales/en.js';
+
+const ids = messageIds(en);                 // every message renders its ID
+const m = withMessages(en, {                // replace a few messages
+  'checkout.title': 'Pay now',
+  greeting: ({ name }) => `Hi ${name}`,
+  ...await compileMessages({ 'cart.total': 'Total: {amount, number}' }),
+});
+// <i18n.Provider initial={{ locale: 'en', messages: m }}>…
+```
+
+`withMessages` takes literal text or a function with the message's arguments;
+ICU text goes through `compileMessages`, which compiles it in memory with the
+same compiler. Spreading a messages object is not a way to override one:
+namespaces such as `m.checkout` are not enumerable, so `Object.keys` lists each
+message once by its full ID, and a spread copies only those. See
+[testing](reference/testing.md).
 
 ## Development inspector and editor tooling
 

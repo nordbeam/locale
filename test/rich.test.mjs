@@ -82,7 +82,7 @@ test('rich incremental assembly agrees with cold output through slot, formatter 
 });
 
 test('generated rich types and React helper infer required slots, values and selected contracts',async t=>{
-  const project=await compiled(t,{baseLocale:'en',catalogs:{en:{plain:'Text',rich:'Hello <strong>{name}</strong>, <link>{n, number}</link>'},fr:{plain:'Texte',rich:'Bonjour <link>{name}</link><strong>{n, number}</strong>'}},scopes:{small:['rich']}});
+  const project=await compiled(t,{baseLocale:'en',catalogs:{en:{plain:'Text',code:'Your code is {code}.',count:'{n, number} items',choice:'{g, select, a {A} other {B}} {name}',rich:'Hello <strong>{name}</strong>, <link>{n, number}</link>'},fr:{plain:'Texte',code:'Votre code est {code}.',count:'{n, number} articles',choice:'{g, select, a {A} other {B}} {name}',rich:'Bonjour <link>{name}</link><strong>{n, number}</strong>'}},scopes:{small:['rich']}});
   await symlink(resolve('node_modules'),join(project.dir,'node_modules'),'dir');
   await writeFile(join(project.dir,'consumer.ts'),`
 import { selectMessages } from './index.js';
@@ -107,6 +107,17 @@ m.plain();
 import plain from './locales/en.js';
 // @ts-expect-error ordinary string functions do not need the rich helper
 rich(plain.plain,{});
+// A plain argument also takes a React element, with or without tags in the message.
+rich(plain.code,{code:h('b',null,'X')});
+rich(plain.code,{code:'X'});
+rich(m.rich,{name:h('em',null,'Ada'),n:2,strong:children=>h('strong',null,children),link:children=>h('a',null,children)});
+rich(plain.choice,{g:'a',name:h('em',null,'Ada')});
+// @ts-expect-error number arguments take no element
+rich(m.rich,{name:'Ada',n:h('b',null,'2'),strong:children=>h('strong',null,children),link:children=>h('a',null,children)});
+// @ts-expect-error select arguments take no element
+rich(plain.choice,{g:h('b',null,'a'),name:'Ada'});
+// @ts-expect-error a message with only number arguments does not need the rich helper
+rich(plain.count,{n:2});
 import scoped from './scopes/small/locales/fr.js';
 rich(scoped.rich,{name:'Ada',n:2,strong:children=>h('strong',null,children),link:children=>h('a',null,children)});
 `);

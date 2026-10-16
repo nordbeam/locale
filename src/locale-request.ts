@@ -7,6 +7,7 @@
 import {
   compileRouting,
   domainRouting,
+  intlLocaleOf,
   joinPath,
   localePrefixConfig,
   matchLocalePrefix,
@@ -45,13 +46,14 @@ function likelyTag(tag: string): Intl.Locale | undefined {
   catch { return undefined; }
 }
 
+/** Ranges match a locale's `intlLocales` tag, so a Swedish `se` answers `sv-SE`, not Northern Sami. */
 function negotiate<Locale extends string>(range: string, routing: NextRouting<Locale, any>): Locale | undefined {
-  const exact = routing.locales.find(locale => locale.toLowerCase() === range);
+  const exact = routing.locales.find(locale => intlLocaleOf(routing, locale).toLowerCase() === range);
   if (exact) return exact;
   const wanted = likelyTag(range);
   if (!wanted) return undefined;
   const candidates = routing.locales.flatMap(locale => {
-    const tag = likelyTag(locale);
+    const tag = likelyTag(intlLocaleOf(routing, locale));
     return tag ? [{ locale, tag }] : [];
   });
   const find = (test: (tag: Intl.Locale) => boolean) => candidates.find(({ tag }) => test(tag))?.locale;
@@ -224,7 +226,7 @@ export function alternateLinkHeader<Locale extends string>(
   };
   const links = routing.locales.flatMap(item => {
     const url = alternate(item);
-    return url ? [`<${url}>; rel="alternate"; hreflang="${item}"`] : [];
+    return url ? [`<${url}>; rel="alternate"; hreflang="${intlLocaleOf(routing, item)}"`] : [];
   });
   const fallback = alternate(routing.defaultLocale);
   if (fallback) links.push(`<${fallback}>; rel="alternate"; hreflang="x-default"`);

@@ -22,7 +22,8 @@ test('package identity and public APIs use Nordbeam Locale names', async () => {
   assert.equal(packageJson.name, '@nordbeam/locale');
   assert.equal(lock.name, packageJson.name);
   assert.equal(lock.packages[''].name, packageJson.name);
-  assert.deepEqual(packageJson.bin, { 'nordbeam-locale': './dist/cli.js', 'nordbeam-locale-mcp': './dist/mcp-bin.js', 'nordbeam-i18n': './dist/cli.js' });
+  // No leading ./: npm publish rewrites it and warns that the bin was invalid.
+  assert.deepEqual(packageJson.bin, { 'nordbeam-locale': 'dist/cli.js', 'nordbeam-locale-mcp': 'dist/mcp-bin.js', 'nordbeam-i18n': 'dist/cli.js' });
   assert.deepEqual(lock.packages[''].bin, { 'nordbeam-locale': 'dist/cli.js', 'nordbeam-locale-mcp': 'dist/mcp-bin.js', 'nordbeam-i18n': 'dist/cli.js' });
 
   const root = await import('@nordbeam/locale');
@@ -148,6 +149,31 @@ test('doctor returns machine-readable catalog and unused-message diagnostics', a
   const result = await doctor({ root, baseLocale: 'en', catalogs: 'messages', sourceDir: 'src' });
   assert.equal(result.ok, true); assert.deepEqual(result.locales, ['en']); assert.deepEqual(result.unused, ['unused']);
   assert.equal(result.warnings[0]?.code, 'UNUSED_MESSAGE');
+});
+
+test('doctor warns when an apostrophe joins two quoted runs, not when quoted text holds one', async t => {
+  const root = await temporary(t);
+  await mkdir(join(root, 'messages')); await mkdir(join(root, 'src'));
+  await writeFile(join(root, 'messages/en.json'), JSON.stringify({
+    faq: { answer: "Cancel any time.'<br/>''<br/>'Your plan stays active." },
+    braces: "Use '{''}' around arguments.",
+    owner: "'{name}''s' plan",
+    joined: "Line one'<br/><br/>'Line two",
+    plain: "It's {count, plural, one {# day} other {# days}}",
+  }, null, 2) + '\n');
+  await writeFile(join(root, 'messages/sv.json'), JSON.stringify({ faq: { answer: "Avsluta när du vill.'<br/>''<br/>'Planen gäller." } }, null, 2) + '\n');
+  await writeFile(join(root, 'src/app.ts'), 'm.faq.answer(); m.braces(); m.owner(); m.joined(); m.plain({ count: 1 });\n');
+  const result = await doctor({ root, baseLocale: 'en', catalogs: 'messages', sourceDir: 'src' });
+  const quoting = result.warnings.filter(warning => warning.code === 'QUOTED_RUN_APOSTROPHE');
+  assert.deepEqual(quoting.map(warning => `${warning.locale}:${warning.messageId}`).sort(), ['en:braces', 'en:faq.answer', 'sv:faq.answer']);
+  const answer = quoting.find(warning => warning.locale === 'en' && warning.messageId === 'faq.answer');
+  assert.equal(answer.message, "The quoted text '<br/>''<br/>' shows an apostrophe: <br/>'<br/>.");
+  assert.match(answer.hint, /'<br\/><br\/>'/);
+  assert.match(answer.file, /en\.json$/);
+  // The caret points at the run, inside the JSON string.
+  assert.equal(answer.location.line, 3);
+  assert.match(answer.frame, /\n\s+\^$/);
+  assert.equal(answer.frame.split('\n')[1].indexOf('^') - answer.frame.split('\n')[0].indexOf("'<br/>''"), 0);
 });
 
 test('doctor discovers common source roots when --source-dir is omitted', async t => {

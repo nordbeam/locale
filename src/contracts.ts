@@ -262,10 +262,10 @@ function branchIdentity(branch: MessageBranchContract): string {
   return JSON.stringify({ kind: branch.kind, argument: branch.argument, path: branch.path });
 }
 
-/** One plural or selectordinal branch's missing-category warning, or undefined when the locale is unsupported or complete. `choices` are the branch keys as written, so exact `=N` keys never satisfy a category. */
-export function pluralCategoryDiagnostic(locale: string, branch: Pick<MessageBranchContract, 'argument' | 'path' | 'choices' | 'pluralType'>, messageId?: string): ContractDiagnostic | undefined {
+/** One plural or selectordinal branch's missing-category warning, or undefined when the locale is unsupported or complete. `choices` are the branch keys as written, so exact `=N` keys never satisfy a category. `intlLocale` is the tag whose plural rules apply, when it differs from the locale code. */
+export function pluralCategoryDiagnostic(locale: string, branch: Pick<MessageBranchContract, 'argument' | 'path' | 'choices' | 'pluralType'>, messageId?: string, intlLocale = locale): ContractDiagnostic | undefined {
   const type = branch.pluralType ?? 'cardinal';
-  const required = pluralCategories(locale, type);
+  const required = pluralCategories(intlLocale, type);
   if (!required) return undefined;
   const missing = required.filter(category => category !== 'other' && !branch.choices.includes(category));
   if (!missing.length) return undefined;

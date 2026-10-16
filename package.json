@@ -49,126 +49,155 @@
     "packages/*"
   ],
   "bin": {
-    "nordbeam-locale": "./dist/cli.js",
-    "nordbeam-locale-mcp": "./dist/mcp-bin.js",
-    "nordbeam-i18n": "./dist/cli.js"
+    "nordbeam-locale": "dist/cli.js",
+    "nordbeam-locale-mcp": "dist/mcp-bin.js",
+    "nordbeam-i18n": "dist/cli.js"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./compiler": {
       "types": "./dist/compiler.d.ts",
-      "import": "./dist/compiler.js"
+      "import": "./dist/compiler.js",
+      "default": "./dist/compiler.js"
     },
     "./project": {
       "types": "./dist/project.d.ts",
-      "import": "./dist/project.js"
+      "import": "./dist/project.js",
+      "default": "./dist/project.js"
     },
     "./translations": {
       "types": "./dist/translations.d.ts",
-      "import": "./dist/translations.js"
+      "import": "./dist/translations.js",
+      "default": "./dist/translations.js"
     },
     "./po": {
       "types": "./dist/po.d.ts",
-      "import": "./dist/po.js"
+      "import": "./dist/po.js",
+      "default": "./dist/po.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
-      "import": "./dist/vite.js"
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./react": {
       "types": "./dist/react.d.ts",
-      "import": "./dist/react.js"
+      "import": "./dist/react.js",
+      "default": "./dist/react.js"
     },
     "./react/rich": {
       "types": "./dist/react-rich.d.ts",
-      "import": "./dist/react-rich.js"
+      "import": "./dist/react-rich.js",
+      "default": "./dist/react-rich.js"
     },
     "./vue": {
       "types": "./dist/vue.d.ts",
-      "import": "./dist/vue.js"
+      "import": "./dist/vue.js",
+      "default": "./dist/vue.js"
     },
     "./svelte": {
       "types": "./dist/svelte.d.ts",
-      "import": "./dist/svelte.js"
+      "import": "./dist/svelte.js",
+      "default": "./dist/svelte.js"
     },
     "./solid": {
       "types": "./dist/solid.d.ts",
-      "import": "./dist/solid.js"
+      "import": "./dist/solid.js",
+      "default": "./dist/solid.js"
     },
     "./next": {
       "types": "./dist/next.d.ts",
-      "import": "./dist/next.js"
+      "import": "./dist/next.js",
+      "default": "./dist/next.js"
     },
     "./next/runtime": {
       "types": "./dist/next-runtime.d.ts",
-      "import": "./dist/next-runtime.js"
+      "import": "./dist/next-runtime.js",
+      "default": "./dist/next-runtime.js"
     },
     "./next/middleware": {
       "types": "./dist/next-middleware.d.ts",
-      "import": "./dist/next-middleware.js"
+      "import": "./dist/next-middleware.js",
+      "default": "./dist/next-middleware.js"
     },
     "./next/navigation": {
       "types": "./dist/next-navigation.d.ts",
-      "import": "./dist/next-navigation.js"
+      "import": "./dist/next-navigation.js",
+      "default": "./dist/next-navigation.js"
     },
     "./next/routing": {
       "types": "./dist/next-routing.d.ts",
-      "import": "./dist/next-routing.js"
+      "import": "./dist/next-routing.js",
+      "default": "./dist/next-routing.js"
     },
     "./next/server": {
       "types": "./dist/next-server.d.ts",
-      "import": "./dist/next-server.js"
+      "import": "./dist/next-server.js",
+      "default": "./dist/next-server.js"
     },
     "./tanstack-start": {
       "types": "./dist/tanstack-start.d.ts",
-      "import": "./dist/tanstack-start.js"
+      "import": "./dist/tanstack-start.js",
+      "default": "./dist/tanstack-start.js"
     },
     "./schema": {
       "types": "./dist/schema.d.ts",
-      "import": "./dist/schema.js"
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
     },
     "./config": {
       "types": "./dist/config.d.ts",
-      "import": "./dist/config.js"
+      "import": "./dist/config.js",
+      "default": "./dist/config.js"
     },
     "./internal/migrate": {
       "types": "./dist/migrate-support.d.ts",
-      "import": "./dist/migrate-support.js"
+      "import": "./dist/migrate-support.js",
+      "default": "./dist/migrate-support.js"
     },
     "./pseudo": {
       "types": "./dist/pseudo.d.ts",
-      "import": "./dist/pseudo.js"
+      "import": "./dist/pseudo.js",
+      "default": "./dist/pseudo.js"
     },
     "./testing": {
       "types": "./dist/testing.d.ts",
-      "import": "./dist/testing.js"
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
     },
     "./inspector": {
       "types": "./dist/inspector.d.ts",
-      "import": "./dist/inspector.js"
+      "import": "./dist/inspector.js",
+      "default": "./dist/inspector.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
-      "import": "./dist/agent.js"
+      "import": "./dist/agent.js",
+      "default": "./dist/agent.js"
     },
     "./agent/plans": {
       "types": "./dist/agent/plans.d.ts",
-      "import": "./dist/agent/plans.js"
+      "import": "./dist/agent/plans.js",
+      "default": "./dist/agent/plans.js"
     },
     "./agent/events": {
       "types": "./dist/agent/events.d.ts",
-      "import": "./dist/agent/events.js"
+      "import": "./dist/agent/events.js",
+      "default": "./dist/agent/events.js"
     },
     "./agent/inspect": {
       "types": "./dist/agent/inspect.d.ts",
-      "import": "./dist/agent/inspect.js"
+      "import": "./dist/agent/inspect.js",
+      "default": "./dist/agent/inspect.js"
     },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
-      "import": "./dist/mcp.js"
+      "import": "./dist/mcp.js",
+      "default": "./dist/mcp.js"
     }
   },
   "peerDependencies": {

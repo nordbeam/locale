@@ -119,8 +119,11 @@ read it with the same rules, so they cannot disagree.
 locale types. It takes the same options as
 [`@nordbeam/locale/next/routing`](next-routing.md): `locales`, `defaultLocale`,
 `localePrefix` (`'always'`, `'as-needed'` or `'never'`, or `{ mode, prefixes }`),
-`localeDetection`, `localeCookie`, `alternateLinks`, `pathnames` and `domains`.
-`localePrefix` defaults to `'always'`, like the Next.js routing.
+`localeDetection`, `localeCookie`, `alternateLinks`, `pathnames`, `domains` and
+`intlLocales`. `localePrefix` defaults to `'always'`, like the Next.js routing.
+Pass the generated `intlLocales` when the config
+[maps a locale code](next-routing.md#locale-codes-that-mean-another-language):
+`Accept-Language`, `hreflang` and `<html lang>` then use the tag.
 
 `pathnames` keys are TanStack Router route paths, not Next.js patterns:
 
@@ -291,8 +294,9 @@ router, and TypeScript then reported `Route` and `getRouter` as circular
 route's `component`. It has its own `Suspense` boundary with an empty fallback.
 The `hydrate` hook and the root `beforeLoad` load each catalog before it renders,
 so the boundary does not suspend on the page's own locale.
-`useHtmlAttributes()` returns `{ lang, dir }` for `<html>`; `dir` is `rtl` for
-right-to-left scripts. On a page of a [scope](#scopes) it adds
+`useHtmlAttributes()` returns `{ lang, dir }` for `<html>`: `lang` is the
+locale's `intlLocales` tag (the locale itself when it has none), and `dir` is
+`rtl` for right-to-left scripts. On a page of a [scope](#scopes) it adds
 `data-nordbeam-locale-scope`, which tells the browser which catalog the page
 needs. Use it in the `shellComponent`. It falls back to the
 default locale when the root route failed before it resolved a locale.

@@ -87,7 +87,7 @@ Generated modules export `loadLocale(locale)` (resolves `{ locale, messages }`),
 - **Find text that was never translated**: `hardcoded --json` lists UI text in the source that is not a catalog message, with `file`, `line`, `text`, `confidence` and `reason`. `hardcoded --fix --json` previews replacing text with the catalog message that renders the same; `--extract` also adds new messages to the base catalog. Read `plan.skipped` before applying with `--write --regenerate`, then translate the new keys in the other locales. Mark text that must stay as written with a `// nordbeam-locale-ignore` comment.
 - **How complete, used or large are the translations**: `report --json` for the numbers. When a person asks, offer `npx nordbeam-locale report --open`, which writes a local HTML page with coverage, unused messages, namespaces, scopes and catalog sizes.
 - **Pseudo-locale for layout testing**: `pseudo --locale en-XA --dry-run --json`, then without `--dry-run`.
-- **Tests**: `@nordbeam/locale/testing` gives `createMessageTestHelpers<Messages>()`; see [references/node.md](references/node.md).
+- **Tests**: `@nordbeam/locale/testing` gives `createMessageTestHelpers<Messages>()`, and `messageIds`, `withMessages` and `compileMessages` for the messages a component test renders; see [references/node.md](references/node.md).
 - **Production builds** must run with `NODE_ENV=production` (or `generate --production`); otherwise the output keeps development argument guards. `init` adds `"prebuild": "nordbeam-locale"`, not `prepare`.
 - **MCP**: `claude mcp add nordbeam-locale -- npx nordbeam-locale mcp` serves check, generate, inspect and rename as tools.
 

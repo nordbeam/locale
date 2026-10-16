@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { extname, relative, resolve, dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { parse } from '@babel/parser';
 import { codemodSource, type CodemodFormat, type CodemodSkip } from './codemods.js';
 
 /** React integrations understood by the migration planner. */
@@ -35,6 +36,9 @@ export interface ReactMigrationOptions {
   readonly wrapRoots?: boolean;
   readonly messageIds?: readonly string[] | ReadonlySet<string>;
   readonly messageIdBySource?: ReadonlyMap<string, string> | Readonly<Record<string, string>>;
+  readonly messageIdRenames?: ReadonlyMap<string, string> | Readonly<Record<string, string>>;
+  /** Message IDs whose base text has rich tags; see CodemodSourceOptions.richMessageIds. */
+  readonly richMessageIds?: readonly string[] | ReadonlySet<string>;
 }
 
 export interface ReactMigrationSkip extends CodemodSkip {
@@ -380,6 +384,78 @@ function addMessageBindings(text: string, local: string, declarations: ReturnTyp
   return code;
 }
 
+type AstNode = { type?: string; start?: number; end?: number; [key: string]: unknown };
+
+/** Bind `m` at the top of each component or hook (a function named `Name` or `useName`) that
+ * uses it with no binding in scope. A file whose messages were all `<Trans>` elements had no
+ * useLingui() for addMessageBindings to replace. Counts the references no component encloses:
+ * a hook cannot bind those, so the caller leaves the file unchanged. */
+function bindComponentMessages(text: string, local: string): { code: string; unbound: number } {
+  let program: AstNode;
+  try { program = parse(text, { sourceType: 'unambiguous', plugins: ['typescript', 'jsx', 'decorators-legacy', 'importAttributes'] }).program as unknown as AstNode; }
+  catch { return { code: text, unbound: 1 }; }
+  const functionLike = (node: AstNode): boolean => /Function(?:Declaration|Expression)$|^(?:ArrowFunctionExpression|ObjectMethod|ClassMethod|ClassPrivateMethod)$/.test(node.type ?? '');
+  const nameOf = (value: unknown): string | undefined => {
+    const node = value as AstNode & { name?: string; property?: unknown } | undefined;
+    return node?.type === 'Identifier' ? node.name : node?.type === 'MemberExpression' ? nameOf(node.property) : undefined;
+  };
+  const declaresM = (value: unknown): boolean => {
+    const node = value as AstNode | undefined;
+    if (!node || typeof node !== 'object') return false;
+    if (node.type === 'Identifier') return (node as { name?: string }).name === 'm';
+    if (node.type === 'VariableDeclaration') return (node.declarations as AstNode[]).some(item => declaresM(item.id));
+    if (node.type === 'ImportDeclaration') return (node.specifiers as AstNode[]).some(item => declaresM(item.local));
+    if (node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') return declaresM(node.id);
+    if (node.type === 'ObjectPattern') return (node.properties as AstNode[]).some(item => declaresM(item.type === 'RestElement' ? item.argument : item.value));
+    if (node.type === 'ArrayPattern') return (node.elements as Array<AstNode | null>).some(item => declaresM(item));
+    if (node.type === 'AssignmentPattern') return declaresM(node.left);
+    if (node.type === 'RestElement') return declaresM(node.argument);
+    if (node.type === 'TSParameterProperty') return declaresM(node.parameter);
+    return false;
+  };
+  const bound = (ancestors: readonly AstNode[]): boolean => ancestors.some(node =>
+    functionLike(node) ? (node.params as AstNode[]).some(declaresM)
+    : node.type === 'BlockStatement' || node.type === 'Program' ? (node.body as AstNode[]).some(item => declaresM(item) || (item.type === 'ExportNamedDeclaration' && declaresM(item.declaration)))
+    : false);
+  const inserts = new Map<number, string>();
+  let unbound = 0;
+  const visit = (node: AstNode, ancestors: AstNode[], names: Map<AstNode, string | undefined>, hint?: string): void => {
+    if (functionLike(node)) names.set(node, nameOf(node.id) ?? (/Method$/.test(node.type!) ? nameOf(node.key) ?? '' : hint));
+    const parent = ancestors.at(-1);
+    if (node.type === 'Identifier' && (node as { name?: string }).name === 'm' && parent?.type === 'MemberExpression' && parent.object === node && !bound(ancestors)) {
+      const component = [...ancestors].reverse().find(item => functionLike(item) && /^(?:[A-Z]|use[A-Z0-9])/.test(names.get(item) ?? ''));
+      const body = component?.body as AstNode | undefined;
+      if (!body) unbound++;
+      else if (body.type === 'BlockStatement') {
+        // Indent like the body's first statement, or one step past the line that opens it.
+        const first = (body.body as AstNode[])[0];
+        const indent = first ? /[ \t]*$/.exec(text.slice(0, first.start))![0] : `${/^[ \t]*/.exec(text.slice(text.lastIndexOf('\n', body.start!) + 1))![0]}  `;
+        inserts.set(body.start! + 1, `\n${indent}const m = ${local}.useMessages();`);
+      } else { inserts.set(body.start!, `{ const m = ${local}.useMessages(); return (`); inserts.set(body.end!, ');}'); }
+    }
+    for (const [key, child] of Object.entries(node)) {
+      if (key === 'loc' || key === 'start' || key === 'end' || key === 'extra' || key === 'type' || /Comments$/.test(key)) continue;
+      const childHint = node.type === 'VariableDeclarator' && key === 'init' ? nameOf(node.id)
+        : node.type === 'AssignmentExpression' && key === 'right' ? nameOf(node.left)
+        : (node.type === 'CallExpression' && key === 'arguments') || node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'ParenthesizedExpression' ? hint : undefined;
+      for (const item of Array.isArray(child) ? child : [child]) if (item && typeof item === 'object' && typeof (item as AstNode).type === 'string') visit(item as AstNode, [...ancestors, node], names, childHint);
+    }
+  };
+  visit(program, [], new Map());
+  let code = text;
+  for (const [offset, insert] of [...inserts].sort((left, right) => right[0] - left[0])) code = code.slice(0, offset) + insert + code.slice(offset);
+  return { code, unbound };
+}
+
+/** A component that renders `render(m)` with the current messages: a message element outside
+ * any component stays lazy, rendering in the current locale as Lingui's `<Trans>` did. Function
+ * declarations hoist, so module-scope elements may use it before this line. */
+function messageComponentDeclaration(name: string, local: string, typed: boolean): string {
+  return typed
+    ? `\n/** Renders a message outside a component, in the current locale. Generated by Nordbeam Locale's migration. */\nfunction ${name}({ render }: { render: (m: ReturnType<typeof ${local}.useMessages>) => React.ReactNode }) {\n  return <>{render(${local}.useMessages())}</>;\n}\n`
+    : `\n/** Renders a message outside a component, in the current locale. Generated by Nordbeam Locale's migration. */\nfunction ${name}({ render }) {\n  return <>{render(${local}.useMessages())}</>;\n}\n`;
+}
+
 function removeDeadImports(text: string, skipped: ReactMigrationSkip[]): { code: string; removed: string[] } {
   const replacements: Replacement[] = [], removed: string[] = [];
   for (const declaration of imports(text)) {
@@ -431,7 +507,9 @@ export function planReactMigration(source: string, options: ReactMigrationOption
   const declarations = hookDeclarations(source);
   const scopes = declarations.map(declaration => blockStartAt(source, declaration.start));
   const duplicateScope = scopes.some((scope, index) => scopes.indexOf(scope) !== index);
-  const rewriteAllowed = declarations.length > 0 && declarations.every(declaration =>
+  // A file without a hook declaration (only `<Trans>` elements) is rewritten too: its
+  // components bind m themselves, below.
+  const rewriteAllowed = declarations.every(declaration =>
     !conditionalHook(source, declaration)
     && declaration.translationLocals.length > 0
     && declaration.locals.every(item => declaration.translationLocals.includes(item))
@@ -448,20 +526,39 @@ export function planReactMigration(source: string, options: ReactMigrationOption
   const codemodInput = codemodFormat === 'tolgee' || codemodFormat === 'auto'
     ? source.replace(/\b(const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*useTranslate\(\s*\)/g, '$1 { t: $2 } = useTranslate()')
     : source;
-  const callResult = rewriteAllowed
-    ? codemodSource(codemodInput, codemodFormat, { messagesObject: '__NORD_BEAM_MESSAGES__', filename: options.filename, messageIds: options.messageIds, messageIdBySource: options.messageIdBySource, cleanup: false })
-    : { code: source, replacements: 0, skipped: [] as CodemodSkip[] };
-  skipped.push(...callResult.skipped.map(item => ({ ...item, kind: 'call' as const })));
+  let messageComponent = 'LocaleMessage';
+  for (let index = 2; bindingExists(source, messageComponent); index++) messageComponent = `LocaleMessage${index}`;
+  const jsxFile = !options.filename || /\.[cm]?[jt]sx$/.test(options.filename) || /\.[cm]?js$/.test(options.filename);
+  let callResult = rewriteAllowed
+    ? codemodSource(codemodInput, codemodFormat, { messagesObject: '__NORD_BEAM_MESSAGES__', filename: options.filename, messageIds: options.messageIds, messageIdBySource: options.messageIdBySource, messageIdRenames: options.messageIdRenames,
+      richMessageIds: options.richMessageIds, ...(jsxFile ? { messageComponent } : {}), cleanup: false })
+    : { code: source, replacements: 0, skipped: [] as readonly CodemodSkip[] };
   let code = callResult.code.replaceAll('__NORD_BEAM_MESSAGES__', 'm');
   const needsMessageBinding = rewriteAllowed && callResult.replacements > 0;
-  if (needsMessageBinding) code = addMessageBindings(code, local, hookDeclarations(code), skipped);
+  if (needsMessageBinding) {
+    code = addMessageBindings(code, local, hookDeclarations(code), skipped);
+    // A component whose messages had no hook declaration binds m at its top. A file that
+    // declares an m of its own, or uses m where no component encloses it, is left unchanged.
+    const bound = bindComponentMessages(code, local);
+    const ownM = /\b(?:const|let|var|function|class)\s+m\b|\bimport\s+m\b|\bas\s+m\b|\(\s*m\s*[,)]|\bm\s*=>/.test(source);
+    if (bound.unbound || ownM) {
+      skipped.push({ kind: 'call', callee: 'm', code: 'MISSING_MESSAGES_BINDING', reason: ownM ? 'the file declares an m of its own, so the generated messages binding would collide; no rewrites applied' : `${bound.unbound} rewritten message reference(s) are outside any component or hook, where m cannot be bound; no rewrites applied`,
+        action: 'Rename the local m, or move the messages into a component, then re-run the migration.' });
+      callResult = { code: source, replacements: 0, skipped: callResult.skipped };
+      code = source;
+    } else {
+      code = bound.code;
+      if (code.includes(`<${messageComponent} render=`)) code = code.replace(/\n*$/, '\n') + messageComponentDeclaration(messageComponent, local, /\.[cm]?tsx$/.test(options.filename ?? '.tsx'));
+    }
+  }
+  skipped.push(...callResult.skipped.map(item => ({ ...item, kind: 'call' as const })));
   const roots = rootReplacements(code, local, options, skipped);
   const rootReplacementsSorted = roots.replacements.sort((a, b) => b.start - a.start);
   for (const replacement of rootReplacementsSorted) code = code.slice(0, replacement.start) + replacement.text + code.slice(replacement.end);
   let generatedImport: string | undefined;
   const providerNeedsImport = new RegExp(`<${escapeRegExp(local)}\\.Provider\\b`).test(code)
     && !imports(code).some(item => item.source === module && item.specs.some(spec => spec.local === local));
-  const needsImport = needsMessageBinding || roots.wrapped > 0 || providerNeedsImport;
+  const needsImport = (needsMessageBinding && callResult.replacements > 0) || roots.wrapped > 0 || providerNeedsImport;
   if (needsImport) {
     const inserted = insertImport(code, local, module); code = inserted.code; generatedImport = inserted.inserted;
   }

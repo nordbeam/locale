@@ -442,7 +442,10 @@ const script = String.raw`
           h('button', { type: 'button', class: 'link', onclick: function () { focusExplorer({ show: 'scope:' + sc.name }); } }, 'List its messages →')),
         h('div', { class: 'stats' }, stat(n(sc.messages), 'messages'), stat(pct(sc.share), 'of the catalog'),
           size ? stat(bytes(size.brotli), [project.baseLocale + ' download', saving]) : null),
-        h('div', { class: 'track', title: pct(sc.share) + ' of the base catalog' }, h('span', { class: 'fill', style: 'width:' + (sc.share * 100) + '%' }))));
+        h('div', { class: 'track', title: pct(sc.share) + ' of the base catalog' }, h('span', { class: 'fill', style: 'width:' + (sc.share * 100) + '%' })),
+        sc.files ? h('p', { class: 'note' }, 'Computed from ' + plural(sc.files, 'source file') + (sc.dynamicFiles ? ', ' + n(sc.dynamicFiles) + ' of them behind a dynamic import()' : '') + '.'
+          + (sc.withoutDynamicImports !== undefined ? ' With "dynamicImports": false it would hold ' + plural(sc.withoutDynamicImports, 'message') + '.' : '')
+          + ' nordbeam-locale inspect --scope ' + sc.name + ' shows why a message is in it.') : null));
     });
   })();
 

@@ -236,14 +236,14 @@ test('init adds prebuild, never prepare, and keeps a prepare that already runs t
   await writeFile(join(root, 'package.json'), JSON.stringify({ scripts: { build: 'vite build' } }) + '\n');
   assert.equal(cli(root, ['init']).status, 0);
   let scripts = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).scripts;
-  assert.equal(scripts.prebuild, 'nordbeam-locale');
+  assert.equal(scripts.prebuild, 'nordbeam-locale --production');
   assert.equal(scripts.prepare, undefined);
 
   const chained = await temporary(t);
   await writeFile(join(chained, 'package.json'), JSON.stringify({ scripts: { prebuild: 'tsc' } }) + '\n');
   assert.equal(cli(chained, ['init']).status, 0);
   scripts = JSON.parse(await readFile(join(chained, 'package.json'), 'utf8')).scripts;
-  assert.equal(scripts.prebuild, 'tsc && nordbeam-locale');
+  assert.equal(scripts.prebuild, 'tsc && nordbeam-locale --production');
 });
 
 test('capabilities lists verify, the report options and the new reports convention', async t => {

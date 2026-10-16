@@ -17,6 +17,11 @@ import { nordbeamLocale } from '@nordbeam/locale/vite';
   `NordbeamLocalePreloadManifest` — related public types. `NordbeamI18nPreloadManifest`
   is a deprecated alias.
 
+The plugin is an ES module. In a package without `"type": "module"`, Vite
+bundles `vite.config.ts` and `vitest.config.ts` as CommonJS and `require()`s the
+plugin; every `@nordbeam/locale` entry has a `default` export condition for that,
+and Node 22.12 or newer loads the module.
+
 With `preloadManifest: true`, the client build emits `nordbeam-locale-preload.json`.
 
 When a server build follows the client build in the same process, as in

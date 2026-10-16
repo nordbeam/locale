@@ -86,7 +86,7 @@ import { rich } from '@nordbeam/locale/react/rich';
 <p>{rich(m.terms, { link: children => <a href="/terms">{children}</a>, b: children => <strong>{children}</strong> })}</p>
 ```
 
-Each tag in the message is a required, typed slot callback; a missing or extra slot is a type error. `rich` adds React keys.
+Each tag in the message is a required, typed slot callback; a missing or extra slot is a type error. `rich` adds React keys. A plain `{name}` argument also takes a React element, also in a message without tags: `rich(m.promo, { code: <strong>{code}</strong> })` (Lingui's `values={{ code: <b/> }}`); number, date and `select` arguments take values only.
 
 ## Bundle selection
 
@@ -133,3 +133,5 @@ const rendered = await testI18n.localeMatrix(locales, loadLocale, messages => me
 ```
 
 Pin `timeZone` in the config and pass fixed dates in snapshot tests.
+
+For component tests: `import en from './src/i18n/locales/en.js'` renders the real text; `messageIds(en)` renders every message as its ID; `withMessages(en, { 'checkout.title': 'Pay now', ...await compileMessages({ 'cart.total': 'Total: {amount, number}' }) })` replaces a few (literal text, a function with the message's arguments, or ICU compiled in memory). Do not spread a messages object to override one: top-level namespaces are not enumerable.

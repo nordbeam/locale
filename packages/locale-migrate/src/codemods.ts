@@ -80,7 +80,7 @@ export interface CodemodCompatibilityFile {
   readonly fallbackCalls: readonly CodemodSkip[];
 }
 
-type Replacement = { start: number; end: number; text: string };
+type Replacement = { start: number; end: number; text: string; rich?: boolean };
 type Binding = { callee: string; namespace?: string; namespaceDynamic?: boolean; ambiguous?: boolean; provenance?: 'native' | 'custom'; kind: 'message' | 'descriptor' | 'direct' };
 type AstNode = { type?: string; start?: number; end?: number; [key: string]: unknown };
 type CleanupScope = { parent?: CleanupScope; bindings: Map<string, CleanupBinding>; node: AstNode };
@@ -114,6 +114,17 @@ export interface CodemodSourceOptions {
   readonly messageIds?: readonly string[] | ReadonlySet<string>;
   /** Maps Lingui source-message macro text to its extracted stable catalog ID. */
   readonly messageIdBySource?: ReadonlyMap<string, string> | Readonly<Record<string, string>>;
+  /** Legacy IDs the catalog migration renamed (`migrationIdRenames`), and their new IDs.
+   * Calls name the new ID; messageIds holds the new IDs. */
+  readonly messageIdRenames?: ReadonlyMap<string, string> | Readonly<Record<string, string>>;
+  /** A component taking `render={(m) => …}` that the caller declares. A message element outside
+   * any component (module scope, a plain helper, a class) becomes `<C render={(m) => m.x()} />`,
+   * which renders lazily in the current locale as Lingui's `<Trans>` did. Without it, such an
+   * element becomes a call like any other, and the caller owns the m it references. */
+  readonly messageComponent?: string;
+  /** Message IDs whose base text has rich tags. A Lingui `<Trans components>` element whose
+   * message has none becomes a plain call; by default every one becomes `rich(m.x, …)`. */
+  readonly richMessageIds?: readonly string[] | ReadonlySet<string>;
   /** Refuse to return a partial migration when any recognized construct is
    * unresolved. Preview callers normally leave this false to inspect skips. */
   readonly strict?: boolean;
@@ -521,6 +532,13 @@ function conditionalMessageCall(
       const value = staticString(slice(node) ?? '');
       return value === undefined ? undefined : render(value);
     }
+    // Lingui's defineMessage({ id: 'x' }).id, or msg(), is the static ID 'x'.
+    if (node.type === 'MemberExpression' && !node.computed && (node.property as AstNode & { name?: string }).name === 'id') {
+      const call = node.object as AstNode & { callee?: AstNode & { name?: string }; arguments?: AstNode[] };
+      const id = call.type === 'CallExpression' && /^(?:defineMessage|msg)$/.test(call.callee?.name ?? '') && call.arguments?.length === 1
+        ? linguiDescriptor(slice(call.arguments[0]!) ?? '') : undefined;
+      return id && !id.values ? render(id.id) : undefined;
+    }
     if (node.type === 'ConditionalExpression') {
       const test = slice((node as AstNode & { test: AstNode }).test);
       const consequent = lower((node as AstNode & { consequent: AstNode }).consequent);
@@ -538,10 +556,16 @@ function conditionalMessageCall(
   return lower(root);
 }
 
-function astCallStarts(text: string): { starts: Set<number>; ends: Map<number, number>; shadowedStarts: Set<number>; jsxStarts: Set<number>; jsxChildStarts: Set<number>; jsxExpressionStatementStarts: Set<number>; error?: string } {
+/** Where a JSX element is evaluated: at module scope, inside a component or hook (a function
+ * named `Name` or `useName`, or any function within one), or in another function. Only a
+ * component can bind `m` with a hook. */
+type JsxOwner = 'module' | 'component' | 'function';
+type JsxElementBounds = { end: number; openingEnd: number; closingStart?: number; owner: JsxOwner };
+
+function astCallStarts(text: string): { starts: Set<number>; ends: Map<number, number>; shadowedStarts: Set<number>; jsxStarts: Set<number>; jsxChildStarts: Set<number>; jsxExpressionStatementStarts: Set<number>; jsxElements: Map<number, JsxElementBounds>; error?: string } {
   try {
     const ast = parse(text, { sourceType: 'unambiguous', errorRecovery: false, plugins: ['typescript', 'jsx', 'decorators-legacy', 'importAttributes'] });
-    const starts = new Set<number>(), ends = new Map<number, number>(), shadowedStarts = new Set<number>(), jsxStarts = new Set<number>(), jsxChildStarts = new Set<number>(), jsxExpressionStatementStarts = new Set<number>(), seen = new Set<object>();
+    const starts = new Set<number>(), ends = new Map<number, number>(), shadowedStarts = new Set<number>(), jsxStarts = new Set<number>(), jsxChildStarts = new Set<number>(), jsxExpressionStatementStarts = new Set<number>(), jsxElements = new Map<number, JsxElementBounds>(), seen = new Set<object>();
     const bindingNames = (value: unknown, result = new Set<string>()): Set<string> => {
       if (!value || typeof value !== 'object') return result;
       const node = value as { type?: string; name?: string; [key: string]: unknown };
@@ -559,7 +583,12 @@ function astCallStarts(text: string): { starts: Set<number>; ends: Map<number, n
       if (node.type === 'Identifier') return node.name;
       if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') return calleeBase(node.object);
     };
-    const visit = (value: unknown, parent?: Record<string, unknown>, scopes: readonly Set<string>[] = []): void => {
+    const nameOf = (value: unknown): string | undefined => {
+      const node = value as { type?: string; name?: string; property?: unknown } | undefined;
+      return node?.type === 'Identifier' ? node.name : node?.type === 'MemberExpression' ? nameOf(node.property) : undefined;
+    };
+    // `hint` carries the name a function expression is bound to: `const Card = memo(() => …)`.
+    const visit = (value: unknown, parent?: Record<string, unknown>, scopes: readonly Set<string>[] = [], owner: JsxOwner = 'module', hint?: string): void => {
       if (!value || typeof value !== 'object' || seen.has(value as object)) return;
       seen.add(value as object);
       const node = value as { type?: string; callee?: { start?: number } | null } & Record<string, unknown>;
@@ -572,13 +601,16 @@ function astCallStarts(text: string): { starts: Set<number>; ends: Map<number, n
         }
       }
       if (node.type === 'JSXElement') {
-        const opening = node.openingElement as { start?: number } | undefined;
+        const opening = node.openingElement as { start?: number; end?: number } | undefined;
+        const closing = node.closingElement as { start?: number } | null | undefined;
         if (typeof opening?.start === 'number') {
           jsxStarts.add(opening.start);
+          if (typeof opening.end === 'number' && typeof node.end === 'number') jsxElements.set(opening.start, { end: node.end as number, openingEnd: opening.end, ...(typeof closing?.start === 'number' ? { closingStart: closing.start } : {}), owner });
+          // An attribute value (`title=<Trans … />`) needs braces around a call, as a child does.
           if (parent?.type === 'JSXElement' || parent?.type === 'JSXFragment') {
             const children = parent.children;
             if (Array.isArray(children) && children.includes(node)) jsxChildStarts.add(opening.start);
-          }
+          } else if (parent?.type === 'JSXAttribute') jsxChildStarts.add(opening.start);
           if (parent?.type === 'ExpressionStatement') jsxExpressionStatementStarts.add(opening.start);
         }
       }
@@ -586,22 +618,28 @@ function astCallStarts(text: string): { starts: Set<number>; ends: Map<number, n
         const catchScope = bindingNames(node.param);
         for (const [key, child] of Object.entries(node)) {
           if (key === 'type' || key === 'param' || key === 'loc' || key === 'start' || key === 'end' || key === 'extra') continue;
-          if (Array.isArray(child)) for (const item of child) visit(item, node, [...scopes, catchScope]);
-          else visit(child, node, [...scopes, catchScope]);
+          if (Array.isArray(child)) for (const item of child) visit(item, node, [...scopes, catchScope], owner);
+          else visit(child, node, [...scopes, catchScope], owner);
         }
         return;
       }
       const functionLike = /Function(?:Declaration|Expression)$|^(?:ArrowFunctionExpression|ObjectMethod|ClassMethod|ClassPrivateMethod)$/.test(node.type ?? '');
       const nextScopes = functionLike ? [...scopes, bindingNames(node.params)] : scopes;
+      // Methods are named by their key, so a class component's render() is not a component.
+      const functionName = functionLike ? nameOf(node.id) ?? (/Method$/.test(node.type!) ? nameOf(node.key) ?? '' : hint) : undefined;
+      const nextOwner: JsxOwner = !functionLike ? owner : functionName !== undefined && /^(?:[A-Z]|use[A-Z0-9])/.test(functionName) || owner === 'component' ? 'component' : 'function';
       for (const [key, child] of Object.entries(node)) {
         if (key === 'type' || key === 'loc' || key === 'start' || key === 'end' || key === 'extra') continue;
-        if (Array.isArray(child)) for (const item of child) visit(item, node, nextScopes);
-        else visit(child, node, nextScopes);
+        const childHint = node.type === 'VariableDeclarator' && key === 'init' ? nameOf(node.id)
+          : node.type === 'AssignmentExpression' && key === 'right' ? nameOf(node.left)
+          : (node.type === 'CallExpression' && key === 'arguments') || node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'ParenthesizedExpression' ? hint : undefined;
+        if (Array.isArray(child)) for (const item of child) visit(item, node, nextScopes, nextOwner, childHint);
+        else visit(child, node, nextScopes, nextOwner, childHint);
       }
     };
     visit(ast.program);
-    return { starts, ends, shadowedStarts, jsxStarts, jsxChildStarts, jsxExpressionStatementStarts };
-  } catch (error) { return { starts: new Set(), ends: new Map(), shadowedStarts: new Set(), jsxStarts: new Set(), jsxChildStarts: new Set(), jsxExpressionStatementStarts: new Set(), error: (error as Error).message }; }
+    return { starts, ends, shadowedStarts, jsxStarts, jsxChildStarts, jsxExpressionStatementStarts, jsxElements };
+  } catch (error) { return { starts: new Set(), ends: new Map(), shadowedStarts: new Set(), jsxStarts: new Set(), jsxChildStarts: new Set(), jsxExpressionStatementStarts: new Set(), jsxElements: new Map(), error: (error as Error).message }; }
 }
 
 function closingParenthesis(text: string, open: number, mask: Uint8Array): number | undefined {
@@ -663,9 +701,26 @@ function formatJsId(descriptor: string): string | undefined {
   return undefined;
 }
 
-function linguiMacroId(argument: string): string | undefined {
-  const wrapped = /^\s*(?:msg|t)\s*\((.*)\)\s*$/s.exec(argument)?.[1] ?? argument;
-  return formatJsId(wrapped);
+/** A Lingui message descriptor, `{ id, message, values }`, bare or wrapped in msg(), t() or
+ * defineMessage(). `message` is the source-locale default the catalog holds and `comment`
+ * is for translators, so both go; `values` are the call's values, as Lingui reads them. Any
+ * other field, a spread or a computed ID is not provably a plain descriptor. */
+function linguiDescriptor(argument: string): { id: string; values?: string } | undefined {
+  const inner = (/^\s*(?:msg|t|defineMessage)\s*\(([\s\S]*)\)\s*$/.exec(argument)?.[1] ?? argument).trim();
+  if (!/^\{[\s\S]*\}$/.test(inner)) return;
+  const wrapped = `(${inner.slice(1, -1)})`;
+  let id: string | undefined, values: string | undefined;
+  for (const field of argumentsOf(wrapped, 0, wrapped.length - 1, codeMask(wrapped))) {
+    if (!field.trim()) continue;
+    if (/^\s*values\s*$/.test(field)) { values = 'values'; continue; }
+    if (/^\s*(?:message|comment)\s*$/.test(field)) continue;
+    const match = /^\s*(?:([A-Za-z_$][\w$]*)|(['"])([A-Za-z_$][\w$]*)\2)\s*:\s*([\s\S]*)$/.exec(field);
+    const name = match?.[1] ?? match?.[3];
+    if (name === 'id') { id = staticString(match![4]!); if (id === undefined) return; }
+    else if (name === 'values') values = match![4]!.trim();
+    else if (name !== 'message' && name !== 'comment') return;
+  }
+  return id ? { id, ...(values ? { values } : {}) } : undefined;
 }
 
 function i18nextValues(argument: string | undefined): { values?: string; unsupported?: string } {
@@ -1178,6 +1233,11 @@ function openingJsxTag(source: string): string {
  * `values={{id: 'nested'}}` are deliberately ignored. Undefined means the
  * attribute is absent or not statically representable. */
 function jsxAttribute(source: string, name: string): string | undefined {
+  return jsxField(source, name)?.value;
+}
+
+/** A JSX attribute's value and whether it was written as an `{expression}`. */
+function jsxField(source: string, name: string): { value: string | undefined; expression: boolean } | undefined {
   const tag = openingJsxTag(source);
   const tagName = /^\s*<([A-Za-z_$][\w$:.!-]*)/.exec(tag)?.[1];
   if (!tagName) return;
@@ -1191,7 +1251,7 @@ function jsxAttribute(source: string, name: string): string | undefined {
     index += fieldName.length;
     while (/\s/.test(tag[index] ?? '')) index++;
     if (tag[index] !== '=') {
-      if (fieldName === name) return '';
+      if (fieldName === name) return { value: '', expression: false };
       continue;
     }
     index++;
@@ -1226,7 +1286,7 @@ function jsxAttribute(source: string, name: string): string | undefined {
       while (index < tag.length && !/\s|\//.test(tag[index]!)) index++;
       value = tag.slice(valueStart, index);
     }
-    if (fieldName === name) return value;
+    if (fieldName === name) return { value, expression: quote === '{' };
     // Keep `fieldStart` explicit to make it clear that this scanner advances
     // one complete top-level field at a time; it also avoids a future lint
     // regression when the parser gains spread-attribute handling.
@@ -1235,11 +1295,57 @@ function jsxAttribute(source: string, name: string): string | undefined {
   return undefined;
 }
 
-function jsxStaticId(source: string): string | undefined {
-  return jsxAttribute(source, 'id');
+/** A JSX `id`: its string (`id="x"`, `id={'x'}`, id={`x`}), or the expression it is set to. */
+function jsxIdAttribute(source: string): { id?: string; expression?: string } {
+  const field = jsxField(source, 'id');
+  if (!field || field.value === undefined) return {};
+  if (!field.expression) return { id: field.value };
+  const id = staticString(field.value);
+  return id !== undefined ? { id } : { expression: field.value };
 }
 
-function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, root: string, mask: Uint8Array, skipped: CodemodSkip[], sourceIds?: ReadonlyMap<string, string>, allowedIds?: ReadonlySet<string>, jsxStarts?: ReadonlySet<number>, jsxChildStarts?: ReadonlySet<number>, jsxExpressionStatementStarts?: ReadonlySet<number>): Replacement[] {
+const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+
+/** Lingui's `components` prop (`[<a href="/x" />]` or `{{ 0: <a /> }}`) as rich() slot callbacks.
+ * A message's `<N>…</N>` renders element N with the message's children; `<N/>` and an empty
+ * `<N></N>` render it as written, as Lingui's formatElements does. An HTML element without
+ * children of its own renders the same either way. Undefined when an entry is not a JSX element. */
+function linguiSlots(expression: string | undefined): string[] | undefined {
+  if (!expression) return;
+  let node: AstNode;
+  try { node = parseExpression(expression, { plugins: ['typescript', 'jsx'] }) as unknown as AstNode; }
+  catch { return; }
+  const entries: Array<[number, AstNode]> = [];
+  if (node.type === 'ArrayExpression') (node.elements as Array<AstNode | null>).forEach((item, index) => { if (item) entries.push([index, item]); });
+  else if (node.type === 'ObjectExpression') for (const property of node.properties as AstNode[]) {
+    const key = property.key as (AstNode & { value?: unknown; name?: unknown }) | undefined;
+    const index = property.type === 'ObjectProperty' && !property.computed ? Number(key?.type === 'Identifier' ? key.name : key?.value) : NaN;
+    if (!Number.isInteger(index) || index < 0) return;
+    entries.push([index, property.value as AstNode]);
+  } else return;
+  const slots: string[] = [];
+  for (const [index, element] of entries) {
+    if (element.type !== 'JSXElement') return;
+    const opening = element.openingElement as AstNode & { selfClosing?: boolean; name: AstNode };
+    const source = expression.slice(element.start!, element.end!), name = expression.slice(opening.name.start!, opening.name.end!);
+    const head = expression.slice(opening.start!, opening.end!).replace(/\s*\/>$/, '>');
+    const withChildren = `${head}{children}</${name}>`;
+    slots.push(`tag${index}: ${opening.selfClosing && voidElements.has(name) ? `() => ${source}`
+      : opening.selfClosing && /^[a-z]/.test(name) ? `(children) => ${withChildren}`
+      : `(children) => children.length ? ${withChildren} : ${source}`}`);
+  }
+  return slots;
+}
+
+type JsxContext = {
+  sourceIds?: ReadonlyMap<string, string>; allowedIds?: ReadonlySet<string>; renamed: (id: string) => string;
+  jsxStarts?: ReadonlySet<number>; jsxChildStarts?: ReadonlySet<number>; jsxStatementStarts?: ReadonlySet<number>; jsxElements?: ReadonlyMap<number, JsxElementBounds>;
+  messageComponent?: string; richIds?: ReadonlySet<string>;
+};
+
+function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, root: string, mask: Uint8Array, skipped: CodemodSkip[], context: JsxContext): Replacement[] {
+  const { sourceIds, allowedIds, renamed, jsxStarts, jsxChildStarts, jsxElements } = context;
+  const expressionContext = (start: number): boolean => jsxExpressionContext(text, start, jsxChildStarts, context.jsxStatementStarts, jsxElements);
   const component = format === 'formatjs' ? 'FormattedMessage' : format === 'lingui' || format === 'i18next' ? 'Trans' : undefined;
   const idAttribute = format === 'i18next' ? 'i18nKey' : 'id';
   const proven = format === 'formatjs' ? hasCodeMatch(text, /(?:\bfrom\s*['"]react-intl['"]|\buseIntl\s*\()/g)
@@ -1251,8 +1357,18 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
   if (!components.some(item => new RegExp(`\\b${item}\\b`).test(text))) return [];
   const componentPattern = components.map(item => item.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|');
   const result: Replacement[] = [], pattern = new RegExp(`<(?:(?:${componentPattern}))\\b[\\s\\S]*?\\/>|<(?:(?:${componentPattern}))\\b(?:[^>"']|"[^"]*"|'[^']*')*>([\\s\\S]*?)<\\/(?:${componentPattern})\\s*>`, 'g');
-  for (const match of text.matchAll(pattern)) {
-    if (jsxStarts && !jsxStarts.has(match.index!)) continue;
+  // The pattern ends an element at its first `/>`, which may belong to a nested element
+  // (`components={[<br />]}`) or a later one, so parsed source walks its elements instead.
+  const head = new RegExp(`<(?:${componentPattern})(?![\\w$.:-])`, 'y');
+  const elements = jsxElements
+    ? [...jsxElements.keys()].sort((left, right) => left - right).filter(start => { head.lastIndex = start; return head.test(text); }).map(start => ({ 0: '', 1: undefined, index: start }))
+    : [...text.matchAll(pattern)].map(found => ({ 0: found[0], 1: found[1], index: found.index! }));
+  for (const found of elements) {
+    if (jsxStarts && !jsxStarts.has(found.index)) continue;
+    const bounds = jsxElements?.get(found.index);
+    const match: { 0: string; 1: string | undefined; index: number } = bounds
+      ? { 0: text.slice(found.index, bounds.end), 1: bounds.closingStart === undefined ? undefined : text.slice(bounds.openingEnd, bounds.closingStart), index: found.index }
+      : found;
     if (!mask[match.index!] && !jsxStarts?.has(match.index!)) {
       skipped.push({ callee: /^<([A-Za-z_$][\w$]*)/.exec(match[0])?.[1] ? `<${/^<([A-Za-z_$][\w$]*)/.exec(match[0])![1]}>` : '<message>', reason: 'component range is not provably executable JSX; review this component manually', offset: match.index });
       continue;
@@ -1263,19 +1379,39 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
       skipped.push({ callee: `<${componentName}>`, reason: 'non-self-closing component contains rich or expression children', offset: match.index });
       continue;
     }
-    if (match[0].slice(componentName.length + 1, match[0].indexOf('>')).includes('<')) {
+    // An element outside any component renders lazily, in the current locale; a call there would
+    // run once (at import, for module scope) or need an m no hook can bind. With a message
+    // component it stays an element; without one, the caller owns m and the call stays as before.
+    const outside = context.messageComponent !== undefined && (bounds?.owner === 'module' || bounds?.owner === 'function');
+    const opening = text.slice(match.index!, bounds ? bounds.openingEnd : match.index! + match[0].indexOf('>'));
+    // Lingui components passed by reference (`components={[link]}`) cannot be rebuilt around the
+    // message's children; that matters only when the message has tags, decided below.
+    const components = format === 'lingui' ? jsxAttribute(match[0], 'components') : undefined;
+    const slots = components !== undefined ? linguiSlots(components) : undefined;
+    if (opening.slice(componentName.length + 1).includes('<') && (!slots || (format === 'lingui' && jsxAttribute(match[0], 'render') !== undefined))) {
       skipped.push({ callee: `<${componentName}>`, reason: 'component contains nested JSX and requires a rich-component migration', offset: match.index });
       continue;
     }
-    const explicitId = idAttribute === 'id' ? jsxStaticId(match[0]) : new RegExp(`\\b${idAttribute}\\s*=\\s*(['"])([^'"\\\\]*)\\1`).exec(match[0])?.[2]
-      ?? new RegExp(`\\b${idAttribute}\\s*=\\s*\\{\\s*(['"])([^'"\\\\]*)\\1\\s*\\}`).exec(match[0])?.[2];
-    const localId = explicitId ?? (format === 'lingui' && children !== undefined ? sourceIds?.get(children.trim()) : undefined);
+    const idField = idAttribute === 'id' ? jsxIdAttribute(match[0]) : { id: new RegExp(`\\b${idAttribute}\\s*=\\s*(['"])([^'"\\\\]*)\\1`).exec(match[0])?.[2]
+      ?? new RegExp(`\\b${idAttribute}\\s*=\\s*\\{\\s*(['"])([^'"\\\\]*)\\1\\s*\\}`).exec(match[0])?.[2] };
+    if (format === 'lingui' && idField.expression !== undefined && !slots) {
+      // A finite conditional (`id={open ? 'a' : 'b'}`) lowers to one static call per branch.
+      const values = jsxAttribute(match[0], 'values');
+      const lowered = values?.includes('<') || jsxAttribute(match[0], 'render') !== undefined ? undefined : conditionalMessageCall(idField.expression, localId => {
+        const id = renamed(localId);
+        return allowedIds && !allowedIds.has(id) ? undefined : `${messageAccess(root, id)}(${values ?? ''})`;
+      });
+      if (!lowered) { skipped.push({ callee: `<${componentName}>`, reason: `component id is the expression ${idField.expression}, so the message key is dynamic`, offset: match.index }); continue; }
+      result.push({ start: match.index!, end: match.index! + match[0].length, text: outside ? `<${context.messageComponent} render={(${root}) => ${lowered}} />` : expressionContext(match.index!) ? lowered : `{${lowered}}` });
+      continue;
+    }
+    const localId = idField.id ?? (format === 'lingui' && children !== undefined ? sourceIds?.get(children.trim()) : undefined);
     if (!localId || !/^[^{}]+$/.test(localId)) { skipped.push({ callee: `<${componentName}>`, reason: 'component has no static id', offset: match.index }); continue; }
     const keyParts = format === 'i18next' ? splitI18nextNamespace(localId) : { key: localId };
     if (!keyParts) { skipped.push({ callee: `<${componentName}>`, reason: `i18next key ${JSON.stringify(localId)} has an unsupported namespace separator; migrate this component manually`, offset: match.index, code: 'UNSUPPORTED_NAMESPACE_SYNTAX' }); continue; }
     const namespace = format === 'i18next' ? jsxAttribute(match[0], 'ns') : undefined;
     const prefix = keyParts.namespace ?? (namespace && /^[^{}'"\s]+$/.test(namespace) ? namespace : undefined);
-    const id = prefix ? `${prefix}.${keyParts.key}` : keyParts.key;
+    const id = renamed(prefix ? `${prefix}.${keyParts.key}` : keyParts.key);
     if (allowedIds && !allowedIds.has(id)) { skipped.push({ callee: `<${componentName}>`, reason: `message id ${JSON.stringify(id)} is absent from generated message types`, offset: match.index, code: 'UNKNOWN_MESSAGE_ID' }); continue; }
     let values = jsxAttribute(match[0], 'values');
     const tagName = jsxAttribute(match[0], 'tagName');
@@ -1283,12 +1419,28 @@ function jsxReplacements(text: string, format: Exclude<CodemodFormat, 'auto'>, r
     if (values?.includes('<')) { skipped.push({ callee: `<${componentName}>`, reason: 'component values contain JSX and require a rich-component migration', offset: match.index }); continue; }
     const count = format === 'i18next' ? jsxAttribute(match[0], 'count') : undefined;
     if (count) values = values ? `{...(${values}),count:${count}}` : `{count:${count}}`;
-    const call = `${messageAccess(root, id)}(${values ?? ''})`;
-    const preceding = text.slice(0, match.index!).trimEnd();
-    const expressionContext = jsxChildStarts?.has(match.index!) ? false : /(?:[({[=?:,]|=>|&&|\|\||\b(?:return|export\s+default|yield|await|throw))\s*$/.test(preceding);
-    result.push({ start: match.index!, end: match.index! + match[0].length, text: expressionContext ? call : `{${call}}` });
+    if (format === 'lingui' && jsxAttribute(match[0], 'render') !== undefined) { skipped.push({ callee: `<${componentName}>`, reason: 'component render prop changes rendered markup and requires a rich-component migration', offset: match.index }); continue; }
+    // A message without tags in the base catalog never used its components.
+    const richCall = components !== undefined && (!context.richIds || context.richIds.has(id));
+    if (richCall && !slots) { skipped.push({ callee: `<${componentName}>`, reason: 'component passes its components by reference and requires a rich-component migration', offset: match.index }); continue; }
+    const objectValues = values !== undefined && /^\{[\s\S]*\}$/.test(values.trim()) ? values.trim().slice(1, -1).trim().replace(/,$/, '') : undefined;
+    const call = richCall
+      ? `rich(${messageAccess(root, id)}, { ${[...(values === undefined ? [] : objectValues !== undefined ? (objectValues ? [objectValues] : []) : [`...${values}`]), ...slots!].join(', ')} })`
+      : `${messageAccess(root, id)}(${values ?? ''})`;
+    result.push({ start: match.index!, end: match.index! + match[0].length, ...(richCall ? { rich: true } : {}),
+      text: outside ? `<${context.messageComponent} render={(${root}) => ${call}} />` : expressionContext(match.index!) ? call : `{${call}}` });
   }
   return result;
+}
+
+/** Whether a call can replace the element as written, or needs `{…}` around it: a JSX child
+ * or attribute value does. Parsed source says so exactly, even past a comment; otherwise the
+ * preceding token decides. */
+function jsxExpressionContext(text: string, start: number, jsxChildStarts?: ReadonlySet<number>, jsxStatementStarts?: ReadonlySet<number>, jsxElements?: ReadonlyMap<number, JsxElementBounds>): boolean {
+  // A statement keeps its braces, as a block: `{m.x()};`.
+  if (jsxElements?.has(start)) return !jsxChildStarts?.has(start) && !jsxStatementStarts?.has(start);
+  if (jsxChildStarts?.has(start)) return false;
+  return /(?:[({[=?:,]|=>|&&|\|\||\b(?:return|export\s+default|yield|await|throw))\s*$/.test(text.slice(0, start).trimEnd());
 }
 
 type SvelteScriptBlock = { start: number; end: number; module: boolean };
@@ -2109,9 +2261,12 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
   const bindingScopeCache = new Map<string, BindingDeclarationScope[]>();
   const executableCall = (start: number): boolean => parsedCallStarts ? parsedCallStarts.has(start) : !!mask[start];
   const allowedIds = options.messageIds ? new Set(options.messageIds) : undefined;
+  const renames: ReadonlyMap<string, string> = options.messageIdRenames instanceof Map ? options.messageIdRenames : new Map(Object.entries(options.messageIdRenames ?? {}));
+  const renamed = (id: string): string => renames.get(id) ?? id;
   const sourceIds = options.messageIdBySource instanceof Map ? new Map(options.messageIdBySource) : new Map(Object.entries(options.messageIdBySource ?? {}));
   for (const [source, id] of sourceIds) {
     if (!source || typeof id !== 'string' || !id) throw new TypeError('messageIdBySource entries must map nonempty source strings to nonempty IDs.');
+    sourceIds.set(source, renamed(id));
   }
   const normalized = normalizeFormat(format);
   const formats = normalized === 'auto' ? concreteFormats : [normalized as Exclude<CodemodFormat, 'auto'>];
@@ -2162,7 +2317,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
           ? parsedCallEnds.get(match.index!)! - 1 : closingParenthesis(text, open, mask);
         if (close === undefined) continue;
         const key = `${match.index}:${close}`; if (occupied.has(key)) continue; occupied.add(key);
-        const id = match[1]!.slice(1), args = text.slice(open + 1, close);
+        const id = renamed(match[1]!.slice(1)), args = text.slice(open + 1, close);
         replacements.push({ start: match.index!, end: close + 1, text: `${messageAccess(root, id)}(${args})` });
       }
       const dynamic = new RegExp(`${boundary}${binding.callee.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(?:\\?\\.)?\\[`, 'g');
@@ -2207,8 +2362,9 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
         ? parsedCallEnds.get(start)! - 1 : closingParenthesis(text, open, mask);
       if (close === undefined) { skipped.push({ callee: binding.callee, reason: 'unclosed call', offset: start }); continue; }
       const args = argumentsOf(text, open, close, mask);
+      const descriptor = activeFormat === 'lingui' && binding.kind !== 'descriptor' && staticString(args[0] ?? '') === undefined ? linguiDescriptor(args[0] ?? '') : undefined;
       const localId = binding.kind === 'descriptor' ? formatJsId(args[0] ?? '')
-        : activeFormat === 'lingui' ? staticString(args[0] ?? '') ?? linguiMacroId(args[0] ?? '')
+        : activeFormat === 'lingui' ? staticString(args[0] ?? '') ?? descriptor?.id
         : staticString(args[0] ?? '');
       if (!localId) {
         const first = args[0]?.trim() ?? '';
@@ -2228,7 +2384,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
           ? conditionalMessageCall(first, localKey => {
             const keyParts = activeFormat === 'i18next' ? splitI18nextNamespace(localKey) : { key: localKey };
             if (!keyParts) return;
-            const id = (keyParts.namespace ?? conditionalNamespace) ? `${keyParts.namespace ?? conditionalNamespace}.${keyParts.key}` : keyParts.key;
+            const id = renamed((keyParts.namespace ?? conditionalNamespace) ? `${keyParts.namespace ?? conditionalNamespace}.${keyParts.key}` : keyParts.key);
             if (allowedIds && !allowedIds.has(id)) return;
             return `${messageAccess(root, id)}(${conditionalValues.values || ''})`;
           })
@@ -2258,9 +2414,10 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       if (!keyParts) { skipped.push({ callee: binding.callee, reason: `i18next key ${JSON.stringify(localId)} has an unsupported namespace separator; migrate this call manually`, offset: start, code: 'UNSUPPORTED_NAMESPACE_SYNTAX' }); continue; }
       const callNamespace = activeFormat === 'i18next' && args[1] ? /\bns\s*:\s*(['"])([^'"\\]*)\1/.exec(args[1])?.[2] : undefined;
       const prefix = keyParts.namespace ?? callNamespace ?? binding.namespace;
-      const id = prefix ? `${prefix}.${keyParts.key}` : keyParts.key;
+      const id = renamed(prefix ? `${prefix}.${keyParts.key}` : keyParts.key);
       if (allowedIds && !allowedIds.has(id)) { skipped.push({ callee: binding.callee, reason: `message id ${JSON.stringify(id)} is absent from generated message types`, offset: start, code: 'UNKNOWN_MESSAGE_ID' }); continue; }
-      const migratedValues = activeFormat === 'i18next' ? i18nextValues(args[1]) : activeFormat === 'svelte-i18n' ? svelteI18nValues(args[1]) : { values: args[1]?.trim() };
+      // Lingui's i18n._(descriptor, values) reads the descriptor's own values first.
+      const migratedValues = activeFormat === 'i18next' ? i18nextValues(args[1]) : activeFormat === 'svelte-i18n' ? svelteI18nValues(args[1]) : { values: descriptor?.values ?? args[1]?.trim() };
       if (migratedValues.unsupported) {
         skipped.push({ callee: binding.callee, reason: activeFormat === 'svelte-i18n' ? `unsupported svelte-i18n option: ${migratedValues.unsupported}` : `unsupported i18next option ${migratedValues.unsupported}`, offset: start }); continue;
       }
@@ -2278,14 +2435,16 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       const pattern = new RegExp(`\\b${name}\\s*\\x60([^\\x60]*)\\x60`, 'g');
       for (const match of text.matchAll(pattern)) {
         if (match[1]!.includes('${')) { skipped.push({ callee: `${name}\u0060…\u0060`, reason: 'Lingui tagged macro has dynamic expressions', offset: match.index }); continue; }
-        const source = match[1]!, id = sourceIds.get(source) ?? (allowedIds?.has(source) ? source : undefined);
+        const source = match[1]!, id = sourceIds.get(source) ?? (allowedIds?.has(renamed(source)) ? renamed(source) : undefined);
         if (!id) { skipped.push({ callee: `${name}\u0060…\u0060`, reason: 'Lingui source macro needs an unambiguous catalog source-to-id mapping', offset: match.index }); continue; }
         if (allowedIds && !allowedIds.has(id)) { skipped.push({ callee: `${name}\u0060…\u0060`, reason: `message id ${JSON.stringify(id)} is absent from generated message types`, offset: match.index }); continue; }
         replacements.push({ start: match.index!, end: match.index! + match[0].length, text: `${messageAccess(root, id)}()` });
       }
     }
   }
-  for (const activeFormat of formats) for (const replacement of jsxReplacements(text, activeFormat, root, mask, skipped, sourceIds, allowedIds, parsedCalls?.jsxStarts, parsedCalls?.jsxChildStarts, parsedCalls?.jsxExpressionStatementStarts)) {
+  const jsxContext: JsxContext = { sourceIds, allowedIds, renamed, jsxStarts: parsedCalls?.jsxStarts, jsxChildStarts: parsedCalls?.jsxChildStarts, jsxStatementStarts: parsedCalls?.jsxExpressionStatementStarts, jsxElements: parsedCalls?.jsxElements,
+    messageComponent: options.messageComponent, ...(options.richMessageIds ? { richIds: new Set(options.richMessageIds) } : {}) };
+  for (const activeFormat of formats) for (const replacement of jsxReplacements(text, activeFormat, root, mask, skipped, jsxContext)) {
     const key = `${replacement.start}:${replacement.end - 1}`; if (!occupied.has(key)) { occupied.add(key); replacements.push(replacement); }
   }
   // A recognized hook binding may expose framework-specific members that have
@@ -2308,7 +2467,7 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
     const pipe = normalized === 'transloco' ? 'transloco' : 'translate';
     const pattern = new RegExp(`(['"])([^'"\\n]+)\\1\\s*\\|\\s*${pipe}\\b`, 'g');
     for (const match of text.matchAll(pattern)) {
-      const id = match[2]!;
+      const id = renamed(match[2]!);
       const suffix = text.slice(match.index! + match[0].length);
       if (/^\s*:/.test(suffix)) {
         skipped.push({ callee: `| ${pipe}`, reason: 'translation pipe options are not statically equivalent; migrate the pipe arguments manually', offset: match.index });
@@ -2394,6 +2553,14 @@ export function codemodSource(text: string, format: CodemodFormat, options: Code
       // syntax error. Return the original bytes and retain an actionable
       // diagnostic so strict/project callers can fail before writing.
       skipped.push({ callee: '(output)', reason: `rewritten source did not parse; no rewrites applied: ${(error as Error).message}` });
+      code = text;
+      appliedReplacements = [];
+    }
+  }
+  if (appliedReplacements.some(replacement => replacement.rich)) {
+    try { code = insertMessagesImport(code, 'rich', '@nordbeam/locale/react/rich'); }
+    catch (error) {
+      skipped.push({ callee: '(rich-import)', reason: `rich() import could not be added; no rewrites applied: ${(error as Error).message}` });
       code = text;
       appliedReplacements = [];
     }
@@ -2596,7 +2763,7 @@ async function replaceFiles(files: Map<string, string>): Promise<void> {
 /** Preview or apply conservative source rewrites. Imports/providers remain an
  * explicit framework migration step unless callers opt into messagesImport;
  * only proven calls with static IDs move. */
-export async function codemodProject(options: { root?: string; sourceDir?: string; format: CodemodFormat; messagesObject?: string; messagesImport?: string; messagesHook?: string; moveTypeImports?: readonly string[]; customCalls?: readonly CustomTranslationCall[]; messageIds?: readonly string[] | ReadonlySet<string>; messageIdBySource?: ReadonlyMap<string, string> | Readonly<Record<string, string>>; messageIdBySourceFile?: string; write?: boolean; plan?: boolean; strict?: boolean;
+export async function codemodProject(options: { root?: string; sourceDir?: string; format: CodemodFormat; messagesObject?: string; messagesImport?: string; messagesHook?: string; moveTypeImports?: readonly string[]; customCalls?: readonly CustomTranslationCall[]; messageIds?: readonly string[] | ReadonlySet<string>; messageIdBySource?: ReadonlyMap<string, string> | Readonly<Record<string, string>>; messageIdBySourceFile?: string; messageIdRenames?: ReadonlyMap<string, string> | Readonly<Record<string, string>>; richMessageIds?: readonly string[] | ReadonlySet<string>; write?: boolean; plan?: boolean; strict?: boolean;
   /** Standalone CLI runs have no framework integration to bind the generated
    * object. `true` refuses a rewrite that would reference an unbound `m` per
    * file; `'warn'` applies it and reports MISSING_MESSAGES_BINDING in
@@ -2625,7 +2792,7 @@ export async function codemodProject(options: { root?: string; sourceDir?: strin
     // every replacement uses offsets from one revision. At project level we
     // can safely reparse the exact output and converge in one reviewed run.
     for (;;) {
-      result = codemodSource(code, options.format, { messagesObject: options.messagesObject, messagesImport: options.messagesImport, messagesHook: options.messagesHook, moveTypeImports: options.moveTypeImports, filename: file, customCalls: options.customCalls, messageIds: options.messageIds, messageIdBySource: sourceIds });
+      result = codemodSource(code, options.format, { messagesObject: options.messagesObject, messagesImport: options.messagesImport, messagesHook: options.messagesHook, moveTypeImports: options.moveTypeImports, filename: file, customCalls: options.customCalls, messageIds: options.messageIds, messageIdBySource: sourceIds, messageIdRenames: options.messageIdRenames, richMessageIds: options.richMessageIds });
       replacements += result.replacements;
       typeImportsMoved += result.typeImportsMoved;
       if (result.code === code) break;

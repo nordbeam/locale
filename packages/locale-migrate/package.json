@@ -40,31 +40,38 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./codemods": {
       "types": "./dist/codemods.d.ts",
-      "import": "./dist/codemods.js"
+      "import": "./dist/codemods.js",
+      "default": "./dist/codemods.js"
     },
     "./project": {
       "types": "./dist/migrate-project.d.ts",
-      "import": "./dist/migrate-project.js"
+      "import": "./dist/migrate-project.js",
+      "default": "./dist/migrate-project.js"
     },
     "./next": {
       "types": "./dist/migrate-next.d.ts",
-      "import": "./dist/migrate-next.js"
+      "import": "./dist/migrate-next.js",
+      "default": "./dist/migrate-next.js"
     },
     "./react": {
       "types": "./dist/migrate-react.d.ts",
-      "import": "./dist/migrate-react.js"
+      "import": "./dist/migrate-react.js",
+      "default": "./dist/migrate-react.js"
     },
     "./frameworks": {
       "types": "./dist/migrate-frameworks.d.ts",
-      "import": "./dist/migrate-frameworks.js"
+      "import": "./dist/migrate-frameworks.js",
+      "default": "./dist/migrate-frameworks.js"
     },
     "./catalog": {
       "types": "./dist/catalog.d.ts",
-      "import": "./dist/catalog.js"
+      "import": "./dist/catalog.js",
+      "default": "./dist/catalog.js"
     }
   },
   "scripts": {

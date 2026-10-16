@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CliError, errorCodes, exitCodes } from '../dist/error-codes.js';
@@ -78,7 +79,7 @@ test('the npx package runs the core CLI at the core version', async () => {
   assert.equal(npxPackage.name, 'nordbeam-locale');
   assert.equal(npxPackage.version, rootPackage.version);
   assert.deepEqual(npxPackage.dependencies, { '@nordbeam/locale': rootPackage.version });
-  assert.deepEqual(npxPackage.bin, { 'nordbeam-locale': './cli.js' });
+  assert.deepEqual(npxPackage.bin, { 'nordbeam-locale': 'cli.js' });
   const run = spawnSync(process.execPath, [new URL('packages/nordbeam-locale/cli.js', root).pathname, '--version'], { encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   assert.equal(run.stdout.trim(), `nordbeam-locale ${rootPackage.version}`);
@@ -115,4 +116,14 @@ test('codemod help names the package, and a real codemod run works end to end', 
   assert.equal(report.ok, true);
   assert.equal(report.dryRun, true);
   assert.equal(report.replacements, 1);
+});
+
+test('every entry point resolves for require(), so a config bundled as CommonJS can load the Vite plugin', async () => {
+  for (const pkg of [rootPackage, migratePackage]) {
+    for (const [key, conditions] of Object.entries(pkg.exports)) assert.equal(conditions.default, conditions.import, `${pkg.name} ${key} needs a default condition`);
+  }
+  // Vite bundles vite.config.ts as CommonJS in a package without "type": "module"; Node 22.12+ requires ES modules.
+  const require = createRequire(new URL('package.json', root));
+  assert.equal(typeof require('@nordbeam/locale/vite').default, 'function');
+  assert.equal(typeof require('@nordbeam/locale/vite').nordbeamLocale, 'function');
 });

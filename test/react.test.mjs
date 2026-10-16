@@ -148,6 +148,34 @@ test('rich slots preserve arrays, iterables, empty nodes and callback-owned valu
   assert.deepEqual(warnings,[],'Complex slot results should not introduce missing-key warnings');
 });
 
+test('rich places React elements passed for plain arguments, with or without tags, in development and production output',async t=>{
+  for(const development of [true,false]){
+    const project=await compiled(t,{baseLocale:'en',development,catalogs:{
+      en:{code:'Your code is {code}.',twice:'{code} and {code}',tagged:'Use <link>{code} now</link>, {who}',plural:'{n, plural, one {# use of {code}} other {# uses of {code}}}'},
+      sv:{code:'Din kod är {code}.',twice:'{code} och {code}',tagged:'{who}: använd <link>{code} nu</link>',plural:'{n, plural, one {# användning av {code}} other {# användningar av {code}}}'},
+    }});
+    const warnings=[];const mock=t.mock.method(console,'error',(...args)=>warnings.push(args.join(' ')));
+    const code=h('b',{className:'code'},'SAVE10');
+    for(const [locale,expected] of [['en',{code:'Your code is <b class="code">SAVE10</b>.',twice:'<b class="code">SAVE10</b> and <b class="code">SAVE10</b>',
+      tagged:'Use <a href="/redeem"><b class="code">SAVE10</b> now</a>, <i>Ada</i>',plural:'2 uses of <b class="code">SAVE10</b>'}],
+      ['sv',{code:'Din kod är <b class="code">SAVE10</b>.',twice:'<b class="code">SAVE10</b> och <b class="code">SAVE10</b>',
+      tagged:'<i>Ada</i>: använd <a href="/redeem"><b class="code">SAVE10</b> nu</a>',plural:'2 användningar av <b class="code">SAVE10</b>'}]]){
+      const m=(await project.load(`locales/${locale}.js`)).default;
+      const html={
+        code:renderToString(rich(m.code,{code})),
+        twice:renderToString(rich(m.twice,{code})),
+        tagged:renderToString(rich(m.tagged,{code,who:h('i',null,'Ada'),link:children=>h('a',{href:'/redeem'},children)})),
+        plural:renderToString(rich(m.plural,{n:2,code})),
+      };
+      assert.deepEqual(html,expected,`${locale} development=${development}`);
+      // Text arguments still render as text, and markup in them stays escaped.
+      assert.equal(renderToString(rich(m.code,{code:'<b>'})),locale==='en'?'Your code is &lt;b&gt;.':'Din kod är &lt;b&gt;.');
+    }
+    mock.mock.restore();
+    assert.deepEqual(warnings,[],'Elements in plain arguments should get React keys');
+  }
+});
+
 test('rich slots retain React portal behavior',async t=>{
   const project=await compiled(t,{baseLocale:'en',catalogs:{en:{message:'Before <slot>Portal text</slot> after'}}});
   const {message}=(await project.load('locales/en.js')).default;

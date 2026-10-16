@@ -6,8 +6,11 @@ import { XMLParser } from 'fast-xml-parser';
 import gettext from 'gettext-parser';
 import { parse as parseYaml } from 'yaml';
 import type { Diagnostic } from '@nordbeam/locale/internal/migrate';
+import { convertLinguiNodes, decodeLinguiMessage } from './lingui-messages.js';
+import type { LinguiNode } from './lingui-messages.js';
+import { grouped, linguiSourceIdWarning } from './grouped-warnings.js';
 
-export type MigrationFormat = 'i18next' | 'vue-i18n' | 'next-intl' | 'formatjs' | 'lingui' | 'tolgee'
+export type MigrationFormat = 'i18next' | 'vue-i18n' | 'next-intl' | 'formatjs' | 'lingui' | 'lingui-po' | 'tolgee'
   | 'arb' | 'yaml' | 'android-xml' | 'apple-strings' | 'apple-xcstrings'
   | 'po' | 'pot' | 'mo' | 'json-gettext' | 'module';
 
@@ -92,65 +95,87 @@ function arb(value: unknown, warnings: Diagnostic[], notes: Record<string, strin
   return output;
 }
 
-/** Escape literal text for ICU; inside a plural branch a bare # would be the count. */
-function icuText(text: string, inPlural: boolean): string {
-  return text.replace(/'/g, "''").replace(/[{}]/g, brace => `'${brace}'`).replace(/#/g, inPlural ? "'#'" : '#');
-}
-
-/** Lingui compiled arrays: strings are literals, [name] is an argument, [name, type, options] is a typed argument. */
-function linguiCompiled(parts: unknown, inPlural = false): string | undefined {
+/** Lingui compiled arrays: strings are literal text, [name] is an argument, [name, type, options] is a typed argument.
+ * Inside a plural, Lingui's runtime replaces every `#` of a branch with the count. */
+function linguiCompiled(parts: unknown, inPlural = false): LinguiNode[] | undefined {
   if (!Array.isArray(parts)) return undefined;
-  let text = '';
+  const nodes: LinguiNode[] = [];
   for (const part of parts) {
-    if (typeof part === 'string') { text += icuText(part, inPlural); continue; }
+    if (typeof part === 'string') {
+      if (!inPlural) { nodes.push({ kind: 'text', value: part }); continue; }
+      part.split('#').forEach((text, index) => { if (index) nodes.push({ kind: 'pound' }); if (text) nodes.push({ kind: 'text', value: text }); });
+      continue;
+    }
     if (!Array.isArray(part) || typeof part[0] !== 'string') return undefined;
     const argument = linguiArgument(part, inPlural);
     if (argument === undefined) return undefined;
-    text += argument;
+    nodes.push(argument);
   }
-  return text;
+  return nodes;
 }
 
-function linguiArgument(part: unknown[], inPlural: boolean): string | undefined {
+function linguiArgument(part: unknown[], inPlural: boolean): LinguiNode | undefined {
   const [name, type, options] = part;
-  if (typeof name !== 'string' || !name || /[\s{}#'|,:]/.test(name)) return name === '#' && inPlural ? '#' : undefined;
-  if (part.length === 1) return `{${name}}`;
+  if (typeof name !== 'string' || !name || /[\s{}#'|,:]/.test(name)) return name === '#' && inPlural ? { kind: 'pound' } : undefined;
+  if (part.length === 1) return { kind: 'argument', name };
   if (type === 'number' || type === 'date' || type === 'time') {
-    if (part.length === 2) return `{${name}, ${type}}`;
-    return part.length === 3 && typeof options === 'string' && !/[{}',]/.test(options) ? `{${name}, ${type}, ${options}}` : undefined;
+    if (part.length === 2) return { kind: 'argument', name, type };
+    return part.length === 3 && typeof options === 'string' && !/[{}',]/.test(options) ? { kind: 'argument', name, type, style: options } : undefined;
   }
   if ((type === 'plural' || type === 'selectordinal' || type === 'select') && part.length === 3 && object(options)) {
     const pluralBranches = type !== 'select';
-    const cases: string[] = [];
+    let offset: string | undefined;
     if (pluralBranches && options.offset !== undefined) {
       if (typeof options.offset !== 'number' || !Number.isInteger(options.offset)) return undefined;
-      cases.push(`offset:${options.offset}`);
+      offset = String(options.offset);
     }
+    const cases: Array<readonly [string, LinguiNode[]]> = [];
     for (const [key, branch] of Object.entries(options)) {
       if (key === 'offset' && pluralBranches) continue;
       if (!/^(=\d+|[a-z]+)$/.test(key)) return undefined;
       const body = linguiCompiled(branch, inPlural || pluralBranches);
       if (body === undefined) return undefined;
-      cases.push(`${key} {${body}}`);
+      cases.push([key, body]);
     }
-    return cases.length ? `{${name}, ${type}, ${cases.join(' ')}}` : undefined;
+    return cases.length ? { kind: 'branches', name, type, ...(offset !== undefined ? { offset } : {}), cases } : undefined;
   }
   return undefined;
+}
+
+/** Messages the Lingui conversion trimmed or changed, reported once per catalog. */
+interface LinguiTally { trimmed: string[]; changed: Array<{ id: string; source: string; converted: string }> }
+
+function linguiConverted(id: string, nodes: LinguiNode[], tally: LinguiTally): string {
+  const conversion = convertLinguiNodes(nodes);
+  if (conversion.trimmed) tally.trimmed.push(id);
+  if (conversion.changed) tally.changed.push({ id, ...conversion.changed });
+  return conversion.text;
+}
+
+function linguiTallyWarnings(tally: LinguiTally, warnings: Diagnostic[]): void {
+  if (tally.trimmed.length) warnings.push(grouped('LINGUI_WHITESPACE_TRIMMED', tally.trimmed,
+    (count, examples) => `Trimmed leading or trailing whitespace from ${count} message${count === 1 ? '' : 's'} with arguments, as Lingui renders them${examples}.`,
+    'Lingui 3 trims what a message with arguments renders and shows plain text as written. Nothing to do unless a page relied on the space.'));
+  for (const item of tally.changed) warnings.push({ ...warning('MIGRATION_TEXT_CHANGED', `The converted message ${JSON.stringify(item.id)} does not read back as its source: ${JSON.stringify(item.source)} became ${JSON.stringify(item.converted)}.`, 'Correct this message in the migrated catalog, and report the source text as a migration bug.'), messageId: item.id });
 }
 
 function lingui(value: unknown, warnings: Diagnostic[]): Record<string, unknown> {
   if (!object(value)) throw new TypeError('Lingui JSON input must be an object.');
   const output: Record<string, unknown> = Object.create(null);
+  const tally: LinguiTally = { trimmed: [], changed: [] }, dropped: string[] = [];
   for (const [id, item] of Object.entries(value)) {
     const source = object(item) ? item.translation ?? item.message : item;
-    const message = typeof source === 'string' ? source : Array.isArray(source) ? linguiCompiled(source) : undefined;
-    if (message !== undefined) output[id] = message;
+    let nodes: LinguiNode[] | undefined;
+    if (typeof source === 'string') {
+      try { nodes = decodeLinguiMessage(source); }
+      catch (error) { warnings.push({ ...warning('LINGUI_COMPILED_ENTRY', `Could not read Lingui message ${JSON.stringify(id)} (${(error as Error).message}); it was not migrated.`, 'Correct the message in the Lingui catalog, or migrate it by hand.'), messageId: id }); continue; }
+    } else nodes = linguiCompiled(source);
+    if (nodes) output[id] = linguiConverted(id, nodes, tally);
     else warnings.push(warning('LINGUI_COMPILED_ENTRY', `Could not convert Lingui entry ${JSON.stringify(id)}; it was not migrated.`, 'Only string, [name], number/date/time, plural, selectordinal and select compiled forms are converted. Recompile with ICU messages or migrate this entry by hand.'));
-    if (object(item)) {
-      const metadata = Object.keys(item).filter(key => !['translation', 'message'].includes(key));
-      if (metadata.length) warnings.push(warning('MIGRATION_METADATA_DROPPED', `Dropped Lingui metadata for ${JSON.stringify(id)} (${metadata.join(', ')}).`));
-    }
+    if (object(item) && Object.keys(item).some(key => !['translation', 'message'].includes(key))) dropped.push(id);
   }
+  linguiTallyWarnings(tally, warnings);
+  if (dropped.length) warnings.push(grouped('MIGRATION_METADATA_DROPPED', dropped, (count, examples) => `Dropped Lingui metadata (comments, origins, flags) of ${count} message${count === 1 ? '' : 's'}${examples}.`));
   return output;
 }
 
@@ -348,10 +373,29 @@ function once<T>(compute: () => T): () => T {
 }
 
 /** Shared PO and Jed rules: gettext forms are indexed as msgstr[]; an empty form is untranslated. */
-function gettextMessage(id: string, forms: string[], plural: boolean, plan: () => PluralPlan | undefined, warnings: Diagnostic[]): string | undefined {
+/** IDs whose warnings are reported once per catalog. */
+interface GettextTally { untranslated: string[]; fuzzy: string[]; dotted: string[]; obsolete: string[]; sourceIds: string[] }
+
+const newTally = (): GettextTally => ({ untranslated: [], fuzzy: [], dotted: [], obsolete: [], sourceIds: [] });
+
+function gettextTallyWarnings(tally: GettextTally, warnings: Diagnostic[]): void {
+  const plural = (count: number, noun: string, suffix = 's'): string => `${count} ${noun}${count === 1 ? (suffix === 's' ? '' : 'y') : suffix}`;
+  if (tally.fuzzy.length) warnings.push(grouped('PO_FUZZY_SKIPPED', tally.fuzzy, (count, examples) => `Skipped ${plural(count, 'fuzzy translation')}${examples}.`, 'Review the translations and remove the fuzzy flag before migrating them.'));
+  if (tally.untranslated.length) warnings.push(grouped('PO_UNTRANSLATED_SKIPPED', tally.untranslated, (count, examples) => `Skipped ${plural(count, 'untranslated message')}${examples}.`, 'They fall back to the base locale. Translate them before migrating, or after.'));
+  if (tally.obsolete.length) warnings.push(grouped('LINGUI_OBSOLETE_INCLUDED', tally.obsolete, (count, examples) => `Migrated ${plural(count, 'obsolete (#~) entr', 'ies')}, which Lingui 3 compiles and renders${examples}.`, 'Run nordbeam-locale prune after the source migration to find the ones no code uses.'));
+  if (tally.sourceIds.length) warnings.push(linguiSourceIdWarning(tally.sourceIds));
+  if (tally.dotted.length) {
+    // Show how one ID nests, an awkward one when there is one: that is what the warning is about.
+    const sample = tally.dotted.find(id => id.split('.').some(segment => !segment || segment !== segment.trim())) ?? tally.dotted[0]!;
+    warnings.push(grouped('DOTTED_SOURCE_ID', tally.dotted, (count, examples) => `${plural(count, 'message ID')} ${count === 1 ? 'contains' : 'contain'} "." and ${count === 1 ? 'migrates' : 'migrate'} as nested keys${examples}; ${JSON.stringify(sample)} nests as ${sample.split('.').map(segment => JSON.stringify(segment)).join(' > ')}.`,
+      'Expected for keyed IDs. For source sentences, use --message-id-map or keyed IDs so a sentence stays one message.'));
+  }
+}
+
+function gettextMessage(id: string, forms: string[], plural: boolean, plan: () => PluralPlan | undefined, warnings: Diagnostic[], tally: GettextTally): string | undefined {
   if (!plural) {
     if (forms[0]) return normalizePrintf(forms[0], id, warnings);
-    warnings.push(warning('PO_UNTRANSLATED_SKIPPED', `Skipped untranslated ${JSON.stringify(id)}.`, 'Translate the entry before migrating it.'));
+    tally.untranslated.push(id);
     return undefined;
   }
   const variants: PluralPlan = plan() ?? [['one', 0], ['other', Math.max(forms.length - 1, 0)]];
@@ -368,12 +412,10 @@ function gettextMessage(id: string, forms: string[], plural: boolean, plan: () =
   return `{count, plural, ${branches.join(' ')}}`;
 }
 
-/** Dotted IDs are split into nested keys by the migrator, which can turn a sentence into a tree. */
-function dottedId(id: string, warnings: Diagnostic[]): void {
-  if (!id.includes('.')) return;
-  const segments = id.split('.');
-  const edges = segments.filter(segment => !segment || segment !== segment.trim());
-  warnings.push(warning('DOTTED_SOURCE_ID', `Message ID ${JSON.stringify(id)} contains "." and migrates as nested keys ${segments.map(segment => JSON.stringify(segment)).join(' > ')}${edges.length ? ` (awkward segments: ${edges.map(segment => JSON.stringify(segment)).join(', ')})` : ''}.`, 'Use --message-id-map or keyed IDs so a source sentence stays one message.'));
+/** Dotted IDs are split into nested keys by the migrator, which can turn a sentence into a tree.
+ * One that cannot nest as written (`"Try again."`) is renamed and reported as MIGRATION_ID_RENAMED. */
+function dottedId(id: string, tally: GettextTally): void {
+  if (id.includes('.')) tally.dotted.push(id);
 }
 
 const headerValue = (headers: Record<string, string> | undefined, name: string): string | undefined => Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === name)?.[1];
@@ -381,22 +423,72 @@ const headerValue = (headers: Record<string, string> | undefined, name: string):
 // gettext-parser 8 takes an options object here; @types/gettext-parser still declares a charset string, which the parser ignores.
 const parsePo = gettext.po.parse as unknown as (buffer: Buffer, options: { defaultCharset: string }) => ReturnType<typeof gettext.po.parse>;
 
-function gettextCatalog(buffer: Buffer, format: 'po' | 'pot' | 'mo', locale: string | undefined, warnings: Diagnostic[]): Record<string, unknown> {
+/** Lingui writes `X-Generator: @lingui/cli` in the PO header. */
+const linguiGeneratedPo = (text: string): boolean => /^"X-Generator: @lingui\/cli\\n"\r?$/m.test(text);
+
+/** Lingui's PO reader keeps a line's text between its first and last quote, so catalogs it
+ * wrote can hold unescaped quotes (`msgstr "Read the "FAQ""`), which gettext-parser rejects. */
+function repairLinguiQuotes(text: string): { text: string; lines: number } {
+  let lines = 0;
+  const repaired = text.split('\n').map(line => {
+    const match = /^((?:#~ )?(?:msgctxt|msgid_plural|msgid|msgstr(?:\[\d+\])?)\s+|(?:#~ )?)"(.*)"(\r?)$/.exec(line);
+    if (!match) return line;
+    const inner = match[2]!.replace(/(?<!\\)((?:\\\\)*)"/g, (_, slashes: string) => `${slashes}\\"`);
+    if (inner === match[2]) return line;
+    lines++;
+    return `${match[1]}"${inner}"${match[3]}`;
+  }).join('\n');
+  return { text: repaired, lines };
+}
+
+/** Comments a translator or developer wrote become notes; references and flags are regenerated by extraction. */
+function gettextNote(comments: { translator?: string; extracted?: string } | undefined): string | undefined {
+  const note = [comments?.extracted, comments?.translator].map(text => text?.trim()).filter(Boolean).join('\n');
+  return note || undefined;
+}
+
+function gettextCatalog(buffer: Buffer, format: 'po' | 'pot' | 'mo' | 'lingui-po', locale: string | undefined, warnings: Diagnostic[], notes: Record<string, string>, options: { sourceLocale?: boolean }): Record<string, unknown> {
+  // Lingui catalogs hold ICU, not printf text, and need Lingui's reading of them (see lingui-messages.ts).
+  const text = format === 'mo' ? '' : buffer.toString('utf8');
+  const linguiPo = format === 'lingui-po' || (format === 'po' && linguiGeneratedPo(text));
+  let input = buffer;
+  if (linguiPo) {
+    const repaired = repairLinguiQuotes(text);
+    if (repaired.lines) {
+      input = Buffer.from(repaired.text);
+      warnings.push(warning('LINGUI_PO_QUOTES', `Read ${repaired.lines} PO line${repaired.lines === 1 ? '' : 's'} with unescaped quotes the way Lingui does, as the text between the first and last quote.`, 'Nothing to do; the migrated catalog holds the text Lingui showed.'));
+    }
+  }
   // gettext-parser assumes ISO-8859-1 when the header declares no charset; read such files as UTF-8, while a declared charset still wins.
-  const parsed = format === 'mo' ? gettext.mo.parse(buffer, 'utf-8') : parsePo(buffer, { defaultCharset: 'utf-8' });
+  const parsed = format === 'mo' ? gettext.mo.parse(buffer, 'utf-8') : parsePo(input, { defaultCharset: 'utf-8' });
   const plan = once(() => pluralPlanFromHeader(headerValue(parsed.headers, 'plural-forms'), headerValue(parsed.headers, 'language') ?? locale, warnings));
   const output: Record<string, unknown> = Object.create(null);
-  for (const [context, messages] of Object.entries(parsed.translations)) for (const [msgid, record] of Object.entries(messages)) {
+  const tally = newTally(), lingui: LinguiTally = { trimmed: [], changed: [] };
+  // Lingui 3 compiles obsolete (#~) entries too, and code can still name them.
+  const entries = [...Object.entries(parsed.translations).map(([context, messages]) => [context, messages, false] as const),
+    ...(linguiPo ? Object.entries((parsed as { obsolete?: typeof parsed.translations }).obsolete ?? {}).map(([context, messages]) => [context, messages, true] as const) : [])];
+  for (const [context, messages, obsolete] of entries) for (const [msgid, record] of Object.entries(messages)) {
     if (!msgid) continue;
     const id = context ? `${context}.${msgid}` : msgid;
-    if (record.comments?.flag?.split(',').some(flag => flag.trim() === 'fuzzy')) {
-      warnings.push(warning('PO_FUZZY_SKIPPED', `Skipped fuzzy translation ${JSON.stringify(id)}.`, 'Review the translation and remove the fuzzy flag before migrating it.'));
-      continue;
-    }
-    const message = gettextMessage(id, record.msgstr, record.msgid_plural !== undefined || record.msgstr.length > 1, plan, warnings);
-    if (message !== undefined) { output[id] = message; dottedId(id, warnings); }
-    if (record.comments && Object.keys(record.comments).some(key => key !== 'flag')) warnings.push(warning('MIGRATION_METADATA_DROPPED', `Dropped gettext comments for ${JSON.stringify(id)}.`));
+    if (obsolete && Object.hasOwn(output, id)) continue;
+    if (record.comments?.flag?.split(',').some(flag => flag.trim() === 'fuzzy')) { tally.fuzzy.push(id); continue; }
+    let message: string | undefined;
+    if (linguiPo && record.msgid_plural === undefined && record.msgstr.length <= 1) {
+      let source = record.msgstr[0];
+      if (!source && options.sourceLocale) { source = msgid; tally.sourceIds.push(id); }
+      if (!source) { tally.untranslated.push(id); continue; }
+      try { message = linguiConverted(id, decodeLinguiMessage(source), lingui); }
+      catch (error) { warnings.push({ ...warning('LINGUI_COMPILED_ENTRY', `Could not read Lingui message ${JSON.stringify(id)} (${(error as Error).message}); it was not migrated.`, 'Correct the message in the Lingui catalog, or migrate it by hand.'), messageId: id }); continue; }
+    } else message = gettextMessage(id, record.msgstr, record.msgid_plural !== undefined || record.msgstr.length > 1, plan, warnings, tally);
+    if (message === undefined) continue;
+    output[id] = message;
+    if (obsolete) tally.obsolete.push(id);
+    dottedId(id, tally);
+    const note = gettextNote(record.comments);
+    if (note) notes[id] = note;
   }
+  linguiTallyWarnings(lingui, warnings);
+  gettextTallyWarnings(tally, warnings);
   return output;
 }
 
@@ -409,14 +501,16 @@ function jsonGettext(value: unknown, locale: string | undefined, warnings: Diagn
   const stringOf = (item: unknown): string | undefined => typeof item === 'string' ? item : undefined;
   const plan = once(() => pluralPlanFromHeader(stringOf(header.plural_forms) ?? stringOf(header['Plural-Forms']), stringOf(header.lang) ?? locale, warnings));
   const output: Record<string, unknown> = Object.create(null);
+  const tally = newTally();
   for (const [id, entry] of Object.entries(domain)) {
     if (!id || !Array.isArray(entry)) continue;
     // Jed keeps a msgid_plural (or null) before the msgstr forms; a lone entry is already the translation.
     const plural = entry.length > 2 || (entry.length === 2 && typeof entry[0] === 'string' && entry[0] !== '');
     const forms = (entry.length > 1 ? entry.slice(1) : entry).map(item => typeof item === 'string' ? item : '');
-    const message = gettextMessage(id, forms, plural, plan, warnings);
-    if (message !== undefined) { output[id] = message; dottedId(id, warnings); }
+    const message = gettextMessage(id, forms, plural, plan, warnings, tally);
+    if (message !== undefined) { output[id] = message; dottedId(id, tally); }
   }
+  gettextTallyWarnings(tally, warnings);
   return output;
 }
 
@@ -545,7 +639,8 @@ async function namespaceFolder(directory: string, format: MigrationFormat): Prom
   return { value: files.length === 1 && Object.hasOwn(value, 'translation') ? value.translation as Record<string, unknown> : value, traversal: format, warnings: [] };
 }
 
-export async function decodeMigrationCatalog(file: string, format: MigrationFormat, locale?: string): Promise<DecodedCatalog> {
+/** `sourceLocale`: the catalog is the base locale's, where Lingui renders an untranslated message's ID. */
+export async function decodeMigrationCatalog(file: string, format: MigrationFormat, locale?: string, options: { sourceLocale?: boolean } = {}): Promise<DecodedCatalog> {
   const absolute = resolve(file), warnings: Diagnostic[] = [];
   if ((await stat(absolute)).isDirectory()) return namespaceFolder(absolute, format);
   const buffer = await readFile(absolute);
@@ -560,7 +655,10 @@ export async function decodeMigrationCatalog(file: string, format: MigrationForm
   }
   if (format === 'android-xml') return { value: androidXml(buffer.toString('utf8'), warnings), traversal: 'next-intl', warnings };
   if (format === 'apple-strings') return { value: appleStrings(buffer.toString('utf8'), warnings), traversal: 'next-intl', warnings };
-  if (format === 'po' || format === 'pot' || format === 'mo') return { value: gettextCatalog(buffer, format, locale, warnings), traversal: 'next-intl', warnings };
+  if (format === 'po' || format === 'pot' || format === 'mo' || format === 'lingui-po') {
+    const notes: Record<string, string> = Object.create(null);
+    return { value: gettextCatalog(buffer, format, locale, warnings, notes, options), traversal: 'next-intl', warnings, notes };
+  }
   const value = json(buffer, absolute);
   if (format === 'arb') { const notes: Record<string, string> = Object.create(null); return { value: arb(value, warnings, notes), traversal: 'next-intl', warnings, notes }; }
   if (format === 'lingui') return { value: lingui(value, warnings), traversal: 'next-intl', warnings };

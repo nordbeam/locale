@@ -79,6 +79,10 @@ test('the report counts coverage, usage, scopes, ICU features and generated size
   assert.equal(site.kind, 'modules');
   assert.deepEqual(site.modules, ['src/pages/home.tsx']);
   assert.equal(site.messages, 2);
+  assert.equal(site.files, 1);
+  assert.equal(site.dynamicFiles, 0);
+  assert.equal(site.withoutDynamicImports, undefined);
+  assert.equal(checkout.files, undefined);
   assert.equal(checkout.kind, 'messages');
   assert.equal(checkout.messages, 3);
   assert.deepEqual(byId['checkout.pay'].scopes, ['checkout']);
@@ -134,6 +138,7 @@ test('report writes a self-contained page; the embedded data cannot close its sc
   assert.equal(document.querySelectorAll('#coverage-chart .bar-row').length, 1);
   assert.ok(document.querySelectorAll('#treemap rect').length >= 4);
   assert.match(document.getElementById('scopes-list').textContent, /site.*computed from 1 glob/);
+  assert.match(document.getElementById('scopes-list').textContent, /Computed from 1 source file\. nordbeam-locale inspect --scope site shows why/);
   const search = document.getElementById('q');
   search.value = 'checkout';
   search.dispatchEvent(new dom.window.Event('input'));

@@ -121,5 +121,5 @@ test('package.json script edits keep the original indentation, line endings and 
   const minText = await readFile(join(minified, 'package.json'), 'utf8');
   assert.equal(minText.includes('\n'), false);
   assert.equal(JSON.parse(minText).scripts.prepare, undefined);
-  assert.equal(JSON.parse(minText).scripts.prebuild, 'nordbeam-locale');
+  assert.equal(JSON.parse(minText).scripts.prebuild, 'nordbeam-locale --production');
 });

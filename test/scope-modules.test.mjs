@@ -4,9 +4,13 @@ import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createServer } from 'vite';
+import { spawnSync } from 'node:child_process';
 import { createGenerator, generate } from '../dist/project.js';
+import { importChain, moduleScopeIds, sourceMessageIds } from '../dist/scope-modules.js';
 import { nordbeamLocale } from '../dist/vite.js';
 import { temporary, waitFor } from './helpers.mjs';
+
+const cli = new URL('../dist/cli.js', import.meta.url).pathname;
 
 const catalog = {
   home: { title: 'Home', 'sign-up': 'Sign up', secret: 'Hidden' },
@@ -81,6 +85,60 @@ test('a module pattern that matches nothing, or modules that name no message, fa
   await assert.rejects(generate(missing.options), error => error.diagnostics?.some(item => item.code === 'SCOPE_MODULE_NOT_FOUND' && item.message.includes('src/pages/*.tsx')));
   const empty = await project(t, { modules: ['src/routes/types.ts'], messages: undefined });
   await assert.rejects(generate(empty.options), error => error.diagnostics?.some(item => item.code === 'EMPTY_SCOPE'));
+});
+
+test('non-ASCII property names and string-keyed segments name messages, and their imports are followed', async () => {
+  const ids = ['Sökförslag', 'video.för', 'video.på', 'Schemalägg', 'video.title', 'ünïcode.ñame'];
+  const code = [
+    "import { Sökförslag } from './sök';",
+    'm.Sökförslag(); m.video.för(); m?.video?.på(); m.video[\'title\']();',
+    'm[\'Schemalägg\'](); m.ünïcode["ñame"]();',
+  ].join('\n');
+  assert.deepEqual([...sourceMessageIds(code, ids)].sort(), [...ids].sort());
+  // A word that only contains an ID is not a chain: `xför` is not `för`, `m.videoför` is not `video.för`.
+  assert.deepEqual([...sourceMessageIds('m.videoför(); xvideo.för;', ids)], []);
+});
+
+test('the crawl follows an import that names non-ASCII bindings', async t => {
+  const { root, options, write } = await project(t, { modules: ['src/routes/sv.tsx'], exclude: undefined, messages: undefined });
+  await write('src/routes/sv.tsx', "import { Sökruta } from '../components/Sökruta';\nexport default Sökruta;\n");
+  await write('src/components/Sökruta.tsx', 'export const Sökruta = m => m.pricing.faq();\n');
+  const result = await generate(options);
+  assert.deepEqual([...result.groups['scopes/site/index.js']], ['pricing.faq']);
+  assert.ok(result.scopeFiles.includes(join(root, 'src/components/Sökruta.tsx')));
+});
+
+test('dynamicImports: false stops the crawl at import(), and the trace says why each message is in the scope', async t => {
+  const { root, options } = await project(t, { dynamicImports: false });
+  const result = await generate(options);
+  assert.deepEqual([...result.groups['scopes/site/index.js']].sort(), siteIds.filter(id => id !== 'lazy.body'));
+  const ids = [...siteIds, 'app.dashboard', 'home.secret', 'pricing.faq'];
+  const traced = await moduleScopeIds({ root, scope: 'site', modules: ['src/router.ts', 'src/routes/index.tsx'], exclude: ['src/routeTree.gen.ts'], ids, outDir: 'src/i18n', trace: true });
+  const relative = file => file.slice(root.length + 1);
+  assert.deepEqual(importChain(traced.trace, traced.trace.ids.get('lazy.body')[0]).map(link => [relative(link.file), link.dynamic]), [['src/routes/index.tsx', false], ['src/routes/lazy.ts', true]]);
+  assert.deepEqual(importChain(traced.trace, traced.trace.ids.get('footer.legal')[0]).map(link => relative(link.file)), ['src/routes/index.tsx', 'src/lib/footer.ts']);
+  assert.equal(traced.trace.files.get(join(root, 'src/router.ts')).from, undefined);
+});
+
+test('inspect --scope lists what the crawl reached and explains one message', async t => {
+  const { root, options } = await project(t);
+  await writeFile(join(root, 'nordbeam-locale.config.json'), JSON.stringify({ baseLocale: 'en', scopes: options.scopes }));
+  const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+  const json = run('inspect', '--scope', 'site', '--id', 'lazy.body', '--json');
+  assert.equal(json.status, 0, json.stderr);
+  const result = JSON.parse(json.stdout);
+  assert.equal(result.scope, 'site');
+  assert.equal(result.messageCount, siteIds.length);
+  assert.equal(result.withoutDynamicImports, siteIds.length - 1);
+  assert.deepEqual(result.message.chain, [{ file: 'src/routes/index.tsx', dynamic: false }, { file: 'src/routes/lazy.ts', dynamic: true }]);
+  assert.ok(result.files.some(file => file.file === 'src/routes/lazy.ts' && file.dynamic && file.messages === 1));
+  const human = run('inspect', '--scope', 'site');
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /Scope site: 8 messages .* named in 6 files/);
+  assert.match(human.stdout, /"dynamicImports": false .* 7 messages/);
+  const unknown = run('inspect', '--scope', 'sitee', '--json');
+  assert.equal(unknown.status, 2);
+  assert.equal(JSON.parse(unknown.stdout).errors[0].suggestion, 'site');
 });
 
 test('in development, reading a message the scope left out logs which one', async t => {

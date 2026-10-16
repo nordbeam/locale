@@ -6,7 +6,7 @@ import { describeMessageContract } from './contracts.js';
 import type { ContractArgumentKind } from './contracts.js';
 import { inputDigest } from './persistent-cache.js';
 import { readNotes } from './notes.js';
-import { resolveModuleScopes, staticScopes } from './scope-modules.js';
+import { importChain, isModuleScope, moduleScopeIds, resolveModuleScopes, staticScopes } from './scope-modules.js';
 import type { InputDigest } from './persistent-cache.js';
 import { check, discoverCatalogs, readOutputManifest } from './project.js';
 import type { GenerateOptions } from './project.js';
@@ -54,6 +54,8 @@ export interface InspectFreshness {
   readonly modifiedFiles: readonly InspectFreshnessItem[];
   /** The command that brings the output back in line. Absent when the output is fresh. */
   readonly next?: string;
+  /** The build mode the fresh output was generated in. Absent unless the output is fresh. */
+  readonly mode?: 'development' | 'production';
 }
 
 export interface InspectFrameworkIntegration {
@@ -102,8 +104,8 @@ export interface InspectMessageResult {
   readonly missing: readonly string[];
   /** Locales whose entry is missing or blank. */
   readonly untranslated: readonly string[];
-  /** Arguments from the base-locale source, or the first locale that has one. */
-  readonly arguments: readonly { readonly name: string; readonly type: ContractArgumentKind; readonly choices: readonly string[] }[];
+  /** Arguments from the base-locale source, or the first locale that has one, then those the config declares (`declared`). */
+  readonly arguments: readonly { readonly name: string; readonly type: ContractArgumentKind; readonly choices: readonly string[]; readonly declared?: true }[];
   /** Set when the source cannot be parsed, so arguments are unknown. */
   readonly argumentsError?: string;
   /** Access expression on the default export of the generated messages module. */
@@ -115,7 +117,7 @@ const missing = (error: unknown): boolean => (error as NodeJS.ErrnoException).co
 const compare = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 const sha1 = (value: string) => hash('sha1', value);
 const outputMarker = '.nordbeam-locale-manifest.json';
-const next = 'nordbeam-locale';
+const defaultNext = 'nordbeam-locale';
 
 /** Flatten a parsed catalog into dotted message IDs, as the compiler does. */
 function flatten(node: unknown, prefix = '', out = new Map<string, string>()): Map<string, string> {
@@ -238,7 +240,7 @@ function requireSeparator(): string { return process.platform === 'win32' ? '\\'
 
 /** Compare the recorded inputs with the current ones. Names the catalogs,
  * options or compiler that changed; an empty list means the inputs match. */
-function staleReasons(recorded: InputDigest, current: InputDigest): InspectFreshnessItem[] {
+function staleReasons(recorded: InputDigest, current: InputDigest, next: string): InspectFreshnessItem[] {
   const reasons: InspectFreshnessItem[] = [];
   const reason = (input: string, message: string) => reasons.push({ input, message, next });
   if (recorded.compiler !== current.compiler) reason('compiler', 'the compiler changed since the last generation');
@@ -254,7 +256,7 @@ function staleReasons(recorded: InputDigest, current: InputDigest): InspectFresh
   return reasons;
 }
 
-async function outputFreshness(generated: InspectGeneratedOutput, record: ManifestRecord | undefined, current: InputDigest | undefined): Promise<InspectFreshness> {
+async function outputFreshness(generated: InspectGeneratedOutput, record: ManifestRecord | undefined, current: InputDigest | undefined, next = defaultNext): Promise<InspectFreshness> {
   const outputs = record?.outputs;
   const modifiedFiles: InspectFreshnessItem[] = [];
   if (outputs) for (const name of generated.presentFiles) {
@@ -263,7 +265,7 @@ async function outputFreshness(generated: InspectGeneratedOutput, record: Manife
     if (sha1(await readFile(resolve(generated.directory, name), 'utf8')) !== expected) modifiedFiles.push({ input: name, message: `${name} differs from the last generation`, next });
   }
   const recorded = record?.inputs;
-  const staleReason = recorded && current ? staleReasons(recorded, current) : [];
+  const staleReason = recorded && current ? staleReasons(recorded, current, next) : [];
   let status: InspectFreshnessStatus;
   if (!generated.exists || !generated.manifestExists || generated.missingFiles.length) status = 'missing';
   else if (!recorded || !outputs || !current) status = 'unknown';
@@ -302,8 +304,10 @@ async function frameworkIntegrations(root: string, outDir: string): Promise<Insp
   ];
 }
 
-/** Return a complete project snapshot without compiling or writing output. */
-export async function inspectProject(options: GenerateOptions, configFile: string, loaded?: Partial<GenerateOptions>): Promise<InspectResult> {
+/** Return a complete project snapshot without compiling or writing output. With `anyMode`, output generated
+ * in the other build mode from the same inputs also counts as fresh: a production build, such as the Vite
+ * plugin's, then passes a check run without NODE_ENV. */
+export async function inspectProject(options: GenerateOptions, configFile: string, loaded?: Partial<GenerateOptions>, { anyMode = false }: { anyMode?: boolean } = {}): Promise<InspectResult> {
   const root = resolve(options.root ?? '.');
   const checked = await check(options);
   const input = resolve(root, options.catalogs ?? 'messages');
@@ -345,8 +349,28 @@ export async function inspectProject(options: GenerateOptions, configFile: strin
   const { persistentCache, text, ...compilerOptions } = { ...options, scopes: scoped.scopes, ...(scoped.computed.length ? { checkedScopes: scoped.computed } : {}) };
   const notes = await readNotes(options).catch(() => undefined);
   const ignored = checked.warnings.filter(warning => warning.code === 'IGNORED_CATALOG_FILE').map(warning => (warning.file ?? '').slice(input.length + 1));
-  const current = await inputDigest({ ...compilerOptions, ...(notes ? { notes } : {}) }, [...texts].map(([file, text]) => ({ name: file.slice(input.length + 1), text })), options.outDir ?? 'src/i18n', ignored);
-  const freshness = await outputFreshness(generated, generatedResult.record, current);
+  const sources = [...texts].map(([file, text]) => ({ name: file.slice(input.length + 1), text }));
+  const digest = (mode: { development?: boolean }) => inputDigest({ ...compilerOptions, ...mode, ...(notes ? { notes } : {}) }, sources, options.outDir ?? 'src/i18n', ignored);
+  // `nordbeam-locale` alone generates development output unless NODE_ENV is production; a mode the caller
+  // set and that differs from it needs its flag.
+  const command = (development: boolean) => options.development === undefined || development === (process.env.NODE_ENV !== 'production')
+    ? defaultNext : `${defaultNext} --${development ? 'development' : 'production'}`;
+  let development = !!options.development;
+  let current = await digest({});
+  const recorded = generatedResult.record?.inputs;
+  if (anyMode && recorded && current && recorded.options !== current.options) {
+    for (const other of [!development, development]) {
+      const candidate = await digest({ development: other });
+      if (candidate?.options === recorded.options) { current = candidate; development = other; break; }
+    }
+  }
+  let found = await outputFreshness(generated, generatedResult.record, current, command(development));
+  // Name the mode when it is the only option that differs: the output is fine, just built for the other mode.
+  if (!anyMode && recorded && found.staleReason.some(item => item.input === 'options') && (await digest({ development: !development }))?.options === recorded.options) {
+    const message = `the output is a ${development ? 'production' : 'development'} build, and a ${development ? 'development' : 'production'} build was asked for`;
+    found = { ...found, staleReason: found.staleReason.map(item => item.input === 'options' ? { ...item, message } : item) };
+  }
+  const freshness: InspectFreshness = found.status === 'fresh' ? { ...found, mode: development ? 'development' : 'production' } : found;
   const config = {
     file: resolve(configFile),
     root,
@@ -367,6 +391,90 @@ export async function inspectProject(options: GenerateOptions, configFile: strin
     integrations,
     frameworkIntegrations: integrations,
     diagnostics: { errors: checked.errors, warnings: checked.warnings },
+  };
+}
+
+export interface InspectScopeFile {
+  readonly file: string;
+  /** The file whose import reached this one first; absent for a file that `modules` matches. */
+  readonly from?: string;
+  /** Reached through at least one dynamic `import()`. */
+  readonly dynamic: boolean;
+  /** Scope messages this file is the first to name. */
+  readonly messages: number;
+}
+
+export interface InspectScopeResult {
+  readonly scope: string;
+  /** `modules` scopes are computed by crawling source files; `messages` scopes list IDs and patterns. */
+  readonly kind: 'modules' | 'messages';
+  readonly modules?: readonly string[];
+  readonly exclude?: readonly string[];
+  readonly patterns: readonly string[];
+  readonly messageCount: number;
+  /** The share of the base catalog the scope holds. */
+  readonly share: number;
+  readonly fileCount?: number;
+  /** Files the crawl read, those naming the most messages first. */
+  readonly files?: readonly InspectScopeFile[];
+  /** How many messages the scope would hold with `"dynamicImports": false`, when it follows them now. */
+  readonly withoutDynamicImports?: number;
+  /** With `--id`: why that message is in the scope, or that it is not. */
+  readonly message?: {
+    readonly id: string;
+    readonly inScope: boolean;
+    /** A configured ID or `prefix.*` pattern that selects it. */
+    readonly pattern?: string;
+    /** Files that name it, in crawl order. */
+    readonly namedBy: readonly string[];
+    /** Import chain from a `modules` file to the first file that names it. */
+    readonly chain: readonly { readonly file: string; readonly dynamic: boolean }[];
+  };
+}
+
+/** Explain one scope: for a computed scope, which files the crawl reached and why each message is in it. */
+export async function inspectScope(options: GenerateOptions, name: string, id?: string): Promise<InspectScopeResult | undefined> {
+  const config = options.scopes?.[name];
+  if (!config) return;
+  const root = resolve(options.root ?? '.');
+  const ids = await baseMessageIds(options);
+  const patterns = isModuleScope(config) ? config.messages ?? [] : config;
+  const matches = (pattern: string, candidate: string) => pattern.endsWith('.*') ? candidate.startsWith(pattern.slice(0, -1)) : pattern === candidate;
+  const selected = new Set(ids.filter(candidate => patterns.some(pattern => matches(pattern, candidate))));
+  const pattern = id === undefined ? undefined : patterns.find(item => matches(item, id) && ids.includes(id));
+  if (!isModuleScope(config)) {
+    return { scope: name, kind: 'messages', patterns, messageCount: selected.size, share: ids.length ? selected.size / ids.length : 0,
+      ...(id === undefined ? {} : { message: { id, inScope: pattern !== undefined, ...(pattern ? { pattern } : {}), namedBy: [], chain: [] } }) };
+  }
+  const crawl = { root, scope: name, modules: config.modules, exclude: config.exclude, ids, outDir: options.outDir ?? 'src/i18n' };
+  const { ids: named, trace } = await moduleScopeIds({ ...crawl, dynamicImports: config.dynamicImports, trace: true });
+  for (const item of named) selected.add(item);
+  const first = new Map<string, number>();
+  for (const files of trace!.ids.values()) if (files[0]) first.set(files[0], (first.get(files[0]) ?? 0) + 1);
+  const dynamic = new Map<string, boolean>();
+  const throughDynamic = (file: string): boolean => {
+    let known = dynamic.get(file);
+    if (known === undefined) dynamic.set(file, known = importChain(trace!, file).some(link => link.dynamic));
+    return known;
+  };
+  const files = [...trace!.files].map(([file, how]) => ({ file, ...(how.from ? { from: how.from } : {}), dynamic: throughDynamic(file), messages: first.get(file) ?? 0 }))
+    .sort((a, b) => b.messages - a.messages || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+  // A second crawl shows what stopping at dynamic imports would leave, so the trade-off is visible before it is configured.
+  let withoutDynamicImports: number | undefined;
+  if (config.dynamicImports !== false && files.some(file => file.dynamic)) {
+    const statics = new Set((await moduleScopeIds({ ...crawl, dynamicImports: false })).ids);
+    for (const item of ids) if (patterns.some(entry => matches(entry, item))) statics.add(item);
+    withoutDynamicImports = statics.size;
+  }
+  let message: InspectScopeResult['message'];
+  if (id !== undefined) {
+    const namedBy = trace!.ids.get(id) ?? [];
+    message = { id, inScope: selected.has(id), ...(pattern ? { pattern } : {}), namedBy, chain: namedBy[0] ? importChain(trace!, namedBy[0]) : [] };
+  }
+  return {
+    scope: name, kind: 'modules', modules: config.modules, ...(config.exclude ? { exclude: config.exclude } : {}), patterns,
+    messageCount: selected.size, share: ids.length ? selected.size / ids.length : 0, fileCount: files.length, files,
+    ...(withoutDynamicImports === undefined ? {} : { withoutDynamicImports }), ...(message ? { message } : {}),
   };
 }
 
@@ -405,6 +513,9 @@ export async function inspectMessage(options: GenerateOptions, id: string): Prom
     try {
       const contract = describeMessageContract(sourced.source!, id);
       argumentsList = Object.entries(contract.arguments).map(([name, argument]) => ({ name, type: argument.kind, choices: [...argument.choices] }));
+      const declared = options.arguments && Object.hasOwn(options.arguments, id) ? options.arguments[id]! : {};
+      argumentsList = [...argumentsList, ...Object.entries(declared).filter(([name]) => !Object.hasOwn(contract.arguments, name))
+        .map(([name, kind]) => ({ name, type: kind, choices: [], declared: true as const }))];
     } catch (error) { argumentsError = (error as Error).message; }
   }
   const presentLocales = locales.filter(item => item.present).map(item => item.locale);
