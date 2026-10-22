@@ -225,6 +225,6 @@
     "magic-string": "1.4.3"
   },
   "optionalDependencies": {
-    "oxc-parser": "0.152.0"
+    "oxc-parser": "0.154.0"
   }
 }
