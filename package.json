@@ -220,11 +220,11 @@
     "vue-i18n": "11.4.14"
   },
   "dependencies": {
-    "@formatjs/icu-messageformat-parser": "3.5.21",
+    "@formatjs/icu-messageformat-parser": "3.5.22",
     "@jridgewell/sourcemap-codec": "1.6.0",
-    "magic-string": "1.4.3"
+    "magic-string": "1.4.4"
   },
   "optionalDependencies": {
-    "oxc-parser": "0.152.0"
+    "oxc-parser": "0.155.0"
   }
 }
